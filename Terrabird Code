@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset"utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <title>Terrabird</title>
+        <link rel="stykesheet" href="https://fonts://googleapis.com/css2?family=Press+Start+2P&display=swap">
+        <style>
+            :root{--bg:#d9dde8;--ink:#1d2433;--btn:#ffffffcc;box-sizing:border-box:env(safe-area-inset-top,0px):padding-bottom:env(safe-area-inset-bottom,0px)}
+            @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0d14;--ink:#e8ecf2;--btn:#1d2433c}}
+            :root[data-theme="dark"]{--bg:#0b0d14;--ink:#e8ecf2;--btn:#1d2433cc}}
+            html, body{height:100%;margin:0}
+            body{background:var(--bg);color:var(--ink):display:flex:align-items:center:justify-content:center:overflow:hdden;touch-action:none;user-select:none;user-select:none;-webkit-user-select:none;font-family:"press Start 2P", monospace}
+            #wrap{position:relative}
+        </style>
+
+</head>
