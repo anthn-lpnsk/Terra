@@ -5,171 +5,445 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Terrabird</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
+
+<!-- ============================== STYLES ============================== -->
 <style>
 :root{--bg:#d9dde8;--ink:#1d2433;--btn:#ffffffcc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b0d14;--ink:#e8ecf2;--btn:#1d2433cc}}
 :root[data-theme="dark"]{--bg:#0b0d14;--ink:#e8ecf2;--btn:#1d2433cc}
+
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--ink);display:flex;align-items:center;justify-content:center;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;font-family:"Press Start 2P",monospace}
+
 #wrap{position:relative}
 canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d2433;box-shadow:6px 6px 0 #0006}
+
 #mute{position:absolute;top:12px;right:12px;width:36px;height:36px;border:3px solid #1d2433;background:var(--btn);color:var(--ink);font:14px "Press Start 2P",monospace;cursor:pointer}
 #mute:focus-visible{outline:3px solid #ffd23f}
 </style>
 </head>
+
+<!-- ============================== PAGE ============================== -->
 <body>
-<div id="wrap"><canvas id="c" tabindex="0" aria-label="Terrabird game"></canvas><button id="mute" aria-label="Toggle sound" title="Sound on/off">♪</button></div>
+<div id="wrap">
+  <canvas id="c" tabindex="0" aria-label="Terrabird game"></canvas>
+  <button id="mute" aria-label="Toggle sound" title="Sound on/off">♪</button>
+</div>
+
 <script>
 (function(){
-const W=360,H=640,cv=document.getElementById('c'),ctx=cv.getContext('2d');
-const BX=100,R=12,V=230,PW=58,SPACING=215,STEP=1/120;
-let dpr=1;
+
+/* =====================================================================
+   1. CONFIG: change these numbers to tune the game
+   ===================================================================== */
+
+// Canvas (the game's internal size; it is scaled to fit the screen)
+const W = 360;
+const H = 640;
+
+// Fox
+const FOX_X      = 100;  // horizontal position (fixed)
+const FOX_RADIUS = 12;   // hitbox size
+const FOX_SPEED  = 230;  // pixels/second, same going up or down
+
+// Pipes
+const PIPE_W        = 58;   // pillar width
+const PIPE_SPACING  = 215;  // horizontal distance between pipes
+const PIPE_SPEED_START = 130;  // pixels/second at score 0
+const PIPE_SPEED_MAX   = 200;  // top speed
+const PIPE_SPEED_PER_POINT = 2.5;  // speed gained per point
+
+// Gaps
+const GAP_START      = 158;  // gap height at score 0
+const GAP_MIN        = 122;  // smallest gap
+const GAP_SHRINK     = 1.2;  // gap lost per point
+const GAP_MARGIN     = 36;   // keeps gaps away from ceiling and floor
+const GAP_REACH      = 0.62; // how far a gap may shift vs. what the fox can reach (lower = easier)
+const EXTREME_FROM_SCORE = 8;    // from this score, gaps may swing top-to-bottom
+const EXTREME_CHANCE     = 0.35; // chance of such a swing
+
+// Timing
+const STEP = 1/120;  // physics step in seconds
+
+// Colors
+const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
+const CLOUD_COLOR = '#6a5aa8';
+const PIPE_COLORS = {body:'#2f8f8a', light:'#46b3ab', dark:'#206b67', outline:'#1d2433'};
+const STARS = [[30,40],[90,120],[170,60],[250,150],[320,50],[60,220],[290,260],[200,200],[140,300],[330,330]]; // [x, y]
+
+// Fox picture: each letter is one pixel (see FOX_COLORS). "." = empty.
+const FOX_COLORS = {L:'#c4cddc', W:'#ffffff', K:'#1d2433', O:'#f08a2e', N:'#1d2433', G:'#9aa0aa', Y:'#ffd23f'};
+const FOX_SPRITE = [
+  "..........KKK...",
+  "......KKKKWWWWK.",
+  "..KKKKWWWWWWWWWK",
+  "KKWWWWWWLLLLLLK.",
+  ".KKLLLLLLKKKKK..",
+  "....K..K.O...O..",
+  "...OOOOOOOOOOOO.",
+  "..OOOOOOOOOKOWWN",
+  "WWOOOOOOOOOOWWW.",
+  "....OO.OO..OGY..",
+  "............GG.."
+];
+const SPRITE_PIXEL = 3; // size of one sprite pixel on screen
+
+
+/* =====================================================================
+   2. SETUP: canvas and screen scaling
+   ===================================================================== */
+
+const cv  = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
 function resize(){
-  const s=Math.min(window.innerWidth/W,window.innerHeight/H)*0.98;
-  dpr=window.devicePixelRatio||1;
-  cv.style.width=W*s+'px';cv.style.height=H*s+'px';
-  cv.width=Math.round(W*s*dpr);cv.height=Math.round(H*s*dpr);
-  ctx.setTransform(cv.width/W,0,0,cv.height/H,0,0);
+  const scale = Math.min(window.innerWidth/W, window.innerHeight/H) * 0.98;
+  const dpr = window.devicePixelRatio || 1;
+  cv.style.width  = W*scale + 'px';
+  cv.style.height = H*scale + 'px';
+  cv.width  = Math.round(W*scale*dpr);
+  cv.height = Math.round(H*scale*dpr);
+  ctx.setTransform(cv.width/W, 0, 0, cv.height/H, 0, 0);
 }
-window.addEventListener('resize',resize);resize();
+window.addEventListener('resize', resize);
+resize();
 
-let best=0;try{best=+localStorage.getItem('terrabird-best')||0}catch(e){}
-let muted=false;try{muted=localStorage.getItem('terrabird-mute')==='1'}catch(e){}
-const mb=document.getElementById('mute');
-function paintMute(){mb.textContent=muted?'✕':'♪';}
+
+/* =====================================================================
+   3. SAVED SETTINGS: best score and mute (stored in the browser)
+   ===================================================================== */
+
+let best = 0;
+try { best = +localStorage.getItem('terrabird-best') || 0; } catch(e){}
+
+let muted = false;
+try { muted = localStorage.getItem('terrabird-mute') === '1'; } catch(e){}
+
+const muteBtn = document.getElementById('mute');
+function paintMute(){ muteBtn.textContent = muted ? '✕' : '♪'; }
 paintMute();
-mb.addEventListener('pointerdown',e=>e.stopPropagation());
-mb.addEventListener('click',e=>{e.stopPropagation();muted=!muted;paintMute();try{localStorage.setItem('terrabird-mute',muted?'1':'0')}catch(x){}});
 
-let ac=null;
-function tone(f1,f2,d,type,vol){
-  if(muted)return;
-  try{
-    ac=ac||new (window.AudioContext||window.webkitAudioContext)();
-    const o=ac.createOscillator(),g=ac.createGain(),t=ac.currentTime;
-    o.type=type||'square';o.frequency.setValueAtTime(f1,t);o.frequency.exponentialRampToValueAtTime(f2,t+d);
-    g.gain.setValueAtTime(vol||0.06,t);g.gain.exponentialRampToValueAtTime(0.0001,t+d);
-    o.connect(g);g.connect(ac.destination);o.start(t);o.stop(t+d);
-  }catch(e){}
+muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
+muteBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  muted = !muted;
+  paintMute();
+  try { localStorage.setItem('terrabird-mute', muted ? '1' : '0'); } catch(x){}
+});
+
+
+/* =====================================================================
+   4. SOUND: simple synthesized beeps
+   ===================================================================== */
+
+let audio = null;
+// Plays a beep that slides from pitch f1 to f2 over d seconds
+function tone(f1, f2, d, type, vol){
+  if (muted) return;
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audio.createOscillator(), gain = audio.createGain(), t = audio.currentTime;
+    osc.type = type || 'square';
+    osc.frequency.setValueAtTime(f1, t);
+    osc.frequency.exponentialRampToValueAtTime(f2, t + d);
+    gain.gain.setValueAtTime(vol || 0.06, t);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    osc.connect(gain); gain.connect(audio.destination);
+    osc.start(t); osc.stop(t + d);
+  } catch(e){}
 }
 
-const STARS=[[30,40],[90,120],[170,60],[250,150],[320,50],[60,220],[290,260],[200,200],[140,300],[330,330]];
-let state='ready',y,dir,pipes,speed,score,lastCenter,nextX,tilt,rings,deadAt,t0=0,shake;
+
+/* =====================================================================
+   5. GAME STATE
+   ===================================================================== */
+
+let state = 'ready';   // 'ready' | 'play' | 'over'
+let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake;
+
 function reset(){
-  y=H/2;dir=1;pipes=[];speed=130;score=0;lastCenter=H/2;nextX=W+60;tilt=0;rings=[];shake=0;
-  while(nextX<W+SPACING*2)spawn();
+  y = H/2;          // fox height
+  dir = 1;          // 1 = falling down, -1 = falling up
+  pipes = [];
+  speed = PIPE_SPEED_START;
+  score = 0;
+  lastCenter = H/2; // center of the most recent gap
+  nextX = W + 60;   // where the next pipe will appear
+  tilt = 0;
+  rings = [];       // flip animation squares
+  shake = 0;        // screen shake timer
+  while (nextX < W + PIPE_SPACING*2) spawn();
 }
-function gapSize(){return Math.max(122,158-score*1.2);}
+
+
+/* =====================================================================
+   6. PIPES: creating gaps the fox can always reach
+   ===================================================================== */
+
+function gapSize(){ return Math.max(GAP_MIN, GAP_START - score*GAP_SHRINK); }
+
 function spawn(){
-  const g=gapSize(),margin=36,dt=SPACING/speed,maxD=V*dt*0.62;
-  const lo=margin+g/2,hi=H-margin-g/2;
-  let d=(Math.random()*2-1)*maxD;
-  if(score>=8&&Math.random()<0.35)d=(Math.random()<0.5?-1:1)*maxD*0.98;
-  let c=Math.min(hi,Math.max(lo,lastCenter+d));
-  lastCenter=c;
-  pipes.push({x:nextX,c:c,g:g,scored:false});
-  nextX+=SPACING;
+  const gap = gapSize();
+  const timeBetween = PIPE_SPACING / speed;
+  const maxShift = FOX_SPEED * timeBetween * GAP_REACH;  // farthest the next gap may move
+  const lo = GAP_MARGIN + gap/2, hi = H - GAP_MARGIN - gap/2;
+
+  let shift = (Math.random()*2 - 1) * maxShift;
+  if (score >= EXTREME_FROM_SCORE && Math.random() < EXTREME_CHANCE){
+    shift = (Math.random() < 0.5 ? -1 : 1) * maxShift * 0.98;  // big swing
+  }
+  const center = Math.min(hi, Math.max(lo, lastCenter + shift));
+  lastCenter = center;
+
+  pipes.push({x:nextX, c:center, g:gap, scored:false});
+  nextX += PIPE_SPACING;
 }
+
+
+/* =====================================================================
+   7. GAME ACTIONS: flip, die, collision
+   ===================================================================== */
+
 function flip(){
-  if(state==='ready'){state='play';}
-  else if(state==='over'){if(performance.now()-deadAt>450){reset();state='ready';}return;}
-  dir=-dir;rings.push({x:BX,y:y,r:R,a:1});
-  tone(dir>0?330:520,dir>0?520:330,0.09,'square',0.05);
-}
-function die(){
-  state='over';deadAt=performance.now();shake=0.25;
-  tone(220,50,0.35,'sawtooth',0.09);
-  if(score>best){best=score;try{localStorage.setItem('terrabird-best',best)}catch(e){}}
-}
-function hit(p){
-  if(BX+R<p.x||BX-R>p.x+PW)return false;
-  return y-R<p.c-p.g/2||y+R>p.c+p.g/2;
-}
-function update(dt){
-  for(const r of rings){r.r+=90*dt;r.a-=3*dt;}
-  rings=rings.filter(r=>r.a>0);
-  if(shake>0)shake-=dt;
-  if(state!=='play'){
-    if(state==='ready'){y=H/2+Math.sin(performance.now()/260)*10;}
+  if (state === 'ready'){ state = 'play'; }
+  else if (state === 'over'){
+    if (performance.now() - deadAt > 450){ reset(); state = 'ready'; }
     return;
   }
-  y+=dir*V*dt;
-  tilt+=(dir*0.5-tilt)*Math.min(1,dt*14);
-  speed=Math.min(200,130+score*2.5);
-  for(const p of pipes)p.x-=speed*dt;
-  nextX-=speed*dt;
-  if(pipes.length&&pipes[0].x+PW<-10)pipes.shift();
-  while(nextX<W+SPACING)spawn();
-  for(const p of pipes){
-    if(!p.scored&&p.x+PW<BX-R){p.scored=true;score++;tone(660,990,0.12,'triangle',0.07);}
-    if(hit(p)){die();return;}
-  }
-  if(y-R<0||y+R>H){y=Math.max(R,Math.min(H-R,y));die();}
+  dir = -dir;
+  rings.push({x:FOX_X, y:y, r:FOX_RADIUS, a:1});
+  tone(dir > 0 ? 330 : 520, dir > 0 ? 520 : 330, 0.09, 'square', 0.05);
 }
 
-function pipe(p){
-  const top=Math.round(p.c-p.g/2),bot=Math.round(p.c+p.g/2),x=Math.round(p.x);
-  function seg(yy,h){ctx.fillStyle='#2f8f8a';ctx.fillRect(x,yy,PW,h);ctx.fillStyle='#46b3ab';ctx.fillRect(x+6,yy,6,h);ctx.fillStyle='#206b67';ctx.fillRect(x+PW-10,yy,10,h);ctx.strokeStyle='#1d2433';ctx.lineWidth=4;ctx.strokeRect(x,yy,PW,h);}
-  function cap(yy){ctx.fillStyle='#46b3ab';ctx.fillRect(x-6,yy,PW+12,18);ctx.fillStyle='#206b67';ctx.fillRect(x-6,yy+12,PW+12,6);ctx.strokeStyle='#1d2433';ctx.lineWidth=4;ctx.strokeRect(x-6,yy,PW+12,18);}
-  seg(-4,top+4);seg(bot,H-bot+4);cap(top-18);cap(bot);
+function die(){
+  state = 'over';
+  deadAt = performance.now();
+  shake = 0.25;
+  tone(220, 50, 0.35, 'sawtooth', 0.09);
+  if (score > best){
+    best = score;
+    try { localStorage.setItem('terrabird-best', best); } catch(e){}
+  }
 }
-const PAL={L:'#c4cddc',W:'#ffffff',K:'#1d2433',O:'#f08a2e',N:'#1d2433',G:'#9aa0aa',Y:'#ffd23f'};
-const SPR=["..........KKK...","......KKKKWWWWK.","..KKKKWWWWWWWWWK","KKWWWWWWLLLLLLK.",".KKLLLLLLKKKKK..","....K..K.O...O..","...OOOOOOOOOOOO.","..OOOOOOOOOKOWWN","WWOOOOOOOOOOWWW.","....OO.OO..OGY..","............GG.."];
-function bird(){
-  ctx.save();ctx.translate(BX,Math.round(y));ctx.scale(1,dir);ctx.rotate(tilt*0.25*dir);
-  for(let r=0;r<SPR.length;r++)for(let c=0;c<16;c++){const ch=SPR[r][c];if(ch!=='.'){ctx.fillStyle=PAL[ch];ctx.fillRect(-24+c*3,-16+r*3,3,3);}}
+
+// True if the fox overlaps pipe p
+function hit(p){
+  if (FOX_X + FOX_RADIUS < p.x || FOX_X - FOX_RADIUS > p.x + PIPE_W) return false;
+  return y - FOX_RADIUS < p.c - p.g/2 || y + FOX_RADIUS > p.c + p.g/2;
+}
+
+
+/* =====================================================================
+   8. UPDATE: runs 120 times per second; dt = seconds per step
+   ===================================================================== */
+
+function update(dt){
+  // Effects keep running in every state
+  for (const r of rings){ r.r += 90*dt; r.a -= 3*dt; }
+  rings = rings.filter(r => r.a > 0);
+  if (shake > 0) shake -= dt;
+
+  // Title screen: fox bobs gently, nothing else moves
+  if (state !== 'play'){
+    if (state === 'ready') y = H/2 + Math.sin(performance.now()/260) * 10;
+    return;
+  }
+
+  // Fox: constant speed, direction set by dir
+  y += dir * FOX_SPEED * dt;
+  tilt += (dir*0.5 - tilt) * Math.min(1, dt*14);  // smooth visual tilt
+
+  // Pipes: speed up with score, scroll left
+  speed = Math.min(PIPE_SPEED_MAX, PIPE_SPEED_START + score*PIPE_SPEED_PER_POINT);
+  for (const p of pipes) p.x -= speed*dt;
+  nextX -= speed*dt;
+
+  // Remove pipes that left the screen, add new ones on the right
+  if (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
+  while (nextX < W + PIPE_SPACING) spawn();
+
+  // Scoring and pipe collisions
+  for (const p of pipes){
+    if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
+      p.scored = true;
+      score++;
+      tone(660, 990, 0.12, 'triangle', 0.07);
+    }
+    if (hit(p)){ die(); return; }
+  }
+
+  // Ceiling and floor
+  if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
+    y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
+    die();
+  }
+}
+
+
+/* =====================================================================
+   9. DRAWING HELPERS: fox, pipes, text
+   ===================================================================== */
+
+function drawFox(){
+  ctx.save();
+  ctx.translate(FOX_X, Math.round(y));
+  ctx.scale(1, dir);                  
+  ctx.rotate(tilt * 0.25 * dir);
+  for (let r = 0; r < FOX_SPRITE.length; r++){
+    for (let c = 0; c < 16; c++){
+      const ch = FOX_SPRITE[r][c];
+      if (ch !== '.'){
+        ctx.fillStyle = FOX_COLORS[ch];
+        ctx.fillRect(-24 + c*SPRITE_PIXEL, -16 + r*SPRITE_PIXEL, SPRITE_PIXEL, SPRITE_PIXEL);
+      }
+    }
+  }
   ctx.restore();
 }
-function text(s,x,yy,size,color,align){
-  ctx.font=size+'px "Press Start 2P",monospace';ctx.textAlign=align||'center';
-  ctx.fillStyle='#1d2433';ctx.fillText(s,x+3,yy+3);
-  ctx.fillStyle=color||'#fff';ctx.fillText(s,x,yy);
+
+function drawPipe(p){
+  const top = Math.round(p.c - p.g/2);   // where the upper pillar ends
+  const bot = Math.round(p.c + p.g/2);   // where the lower pillar starts
+  const x = Math.round(p.x);
+  const C = PIPE_COLORS;
+
+  function body(yy, h){
+    ctx.fillStyle = C.body;  ctx.fillRect(x, yy, PIPE_W, h);
+    ctx.fillStyle = C.light; ctx.fillRect(x+6, yy, 6, h);
+    ctx.fillStyle = C.dark;  ctx.fillRect(x+PIPE_W-10, yy, 10, h);
+    ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x, yy, PIPE_W, h);
+  }
+  function cap(yy){
+    ctx.fillStyle = C.light; ctx.fillRect(x-6, yy, PIPE_W+12, 18);
+    ctx.fillStyle = C.dark;  ctx.fillRect(x-6, yy+12, PIPE_W+12, 6);
+    ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x-6, yy, PIPE_W+12, 18);
+  }
+
+  body(-4, top+4);        // upper pillar
+  body(bot, H-bot+4);     // lower pillar
+  cap(top-18);            // upper lip
+  cap(bot);               // lower lip
 }
-try{document.fonts.load('16px "Press Start 2P"')}catch(e){}
+
+// Text with a dark drop shadow
+function text(s, x, yy, size, color, align){
+  ctx.font = size + 'px "Press Start 2P",monospace';
+  ctx.textAlign = align || 'center';
+  ctx.fillStyle = '#1d2433'; ctx.fillText(s, x+3, yy+3);
+  ctx.fillStyle = color || '#fff'; ctx.fillText(s, x, yy);
+}
+try { document.fonts.load('16px "Press Start 2P"'); } catch(e){}
+
+
+/* =====================================================================
+   10. DRAW: paints one frame (back to front)
+   ===================================================================== */
+
 function draw(){
   ctx.save();
-  if(shake>0)ctx.translate((Math.random()-0.5)*8,(Math.random()-0.5)*8);
-  const bands=['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
-  for(let i=0;i<6;i++){ctx.fillStyle=bands[i];ctx.fillRect(-10,i*Math.ceil(H/6),W+20,Math.ceil(H/6)+1);}
-  ctx.fillStyle='#ffffff';
-  for(const s of STARS)ctx.fillRect(s[0],s[1],3,3);
-  ctx.fillStyle='#6a5aa8';
-  for(let i=0;i<3;i++){const cx=Math.round(((i*170-(performance.now()/90)*(1+i*0.3))%(W+160)+W+160)%(W+160)-80),cy=300+i*110;ctx.fillRect(cx,cy,64,12);ctx.fillRect(cx+12,cy-12,36,12);}
-  for(const p of pipes)pipe(p);
-  ctx.fillStyle='#1d2433';ctx.fillRect(0,0,W,8);ctx.fillRect(0,H-8,W,8);ctx.fillStyle='#3a4466';for(let i=0;i<W;i+=16){ctx.fillRect(i,2,8,4);ctx.fillRect(i+8,H-6,8,4);}
-  for(const r of rings){ctx.strokeStyle='rgba(255,255,255,'+r.a+')';ctx.lineWidth=3;ctx.strokeRect(Math.round(r.x-r.r),Math.round(r.y-r.r),Math.round(r.r*2),Math.round(r.r*2));}
-  bird();
-  if(state==='play'){text(score,W/2,84,32,'#fff');}
-  if(state==='ready'){
-    text('TERRABIRD',W/2,190,28,'#ffd23f');
-    text('TAP / CLICK / SPACE',W/2,430,10,'#fff');
-    text('TO FLIP GRAVITY',W/2,454,10,'#fff');
-    text('BEST '+best,W/2,500,12,'#ffd9a0');
+  if (shake > 0) ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8);
+
+  // Sky
+  const bandH = Math.ceil(H / SKY_BANDS.length);
+  for (let i = 0; i < SKY_BANDS.length; i++){
+    ctx.fillStyle = SKY_BANDS[i];
+    ctx.fillRect(-10, i*bandH, W+20, bandH+1);
   }
-  if(state==='over'){
-    ctx.fillStyle='#1d2433';ctx.fillRect(36,196,W-72,232);ctx.strokeStyle='#fff';ctx.lineWidth=4;ctx.strokeRect(40,200,W-80,224);
-    text('GAME OVER',W/2,255,22,'#ff6a4d');
-    text('SCORE '+score,W/2,310,14,'#fff');
-    text('BEST '+best,W/2,346,14,'#ffd9a0');
-    text('TAP TO RETRY',W/2,396,11,'#fff');
+  ctx.fillStyle = '#ffffff';
+  for (const s of STARS) ctx.fillRect(s[0], s[1], 3, 3);
+
+  // Drifting clouds
+  ctx.fillStyle = CLOUD_COLOR;
+  for (let i = 0; i < 3; i++){
+    const cx = Math.round(((i*170 - (performance.now()/90)*(1+i*0.3)) % (W+160) + W+160) % (W+160) - 80);
+    const cy = 300 + i*110;
+    ctx.fillRect(cx, cy, 64, 12);
+    ctx.fillRect(cx+12, cy-12, 36, 12);
   }
+ 
+  // Pipes
+  for (const p of pipes) drawPipe(p);
+
+  // Ceiling and floor bars
+  ctx.fillStyle = '#1d2433';
+  ctx.fillRect(0, 0, W, 8); ctx.fillRect(0, H-8, W, 8);
+  ctx.fillStyle = '#3a4466';
+  for (let i = 0; i < W; i += 16){ ctx.fillRect(i, 2, 8, 4); ctx.fillRect(i+8, H-6, 8, 4); }
+
+  // Flip animation squares
+  for (const r of rings){
+    ctx.strokeStyle = 'rgba(255,255,255,' + r.a + ')';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(Math.round(r.x-r.r), Math.round(r.y-r.r), Math.round(r.r*2), Math.round(r.r*2));
+  }
+
+  drawFox();
+
+  // Screens
+  if (state === 'play'){
+    text(score, W/2, 84, 32, '#fff');
+  }
+  if (state === 'ready'){
+    text('TERRABIRD', W/2, 190, 28, '#ffd23f');
+    text('TAP / CLICK / SPACE', W/2, 430, 10, '#fff');
+    text('TO FLIP GRAVITY', W/2, 454, 10, '#fff');
+    text('BEST ' + best, W/2, 500, 12, '#ffd9a0');
+  }
+  if (state === 'over'){
+    ctx.fillStyle = '#1d2433'; ctx.fillRect(36, 196, W-72, 232);
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(40, 200, W-80, 224);
+    text('GAME OVER', W/2, 255, 22, '#ff6a4d');
+    text('SCORE ' + score, W/2, 310, 14, '#fff');
+    text('BEST ' + best, W/2, 346, 14, '#ffd9a0');
+    text('TAP TO RETRY', W/2, 396, 11, '#fff');
+  }
+
   ctx.restore();
 }
 
-let acc=0,last=performance.now();
-function loop(now){
-  acc+=Math.min(0.1,(now-last)/1000);last=now;
-  while(acc>=STEP){update(STEP);acc-=STEP;}
-  draw();requestAnimationFrame(loop);
-}
-reset();requestAnimationFrame(loop);
 
-window.addEventListener('pointerdown',e=>{if(e.target===mb)return;e.preventDefault();try{window.focus();cv.focus()}catch(x){}flip();});
-cv.focus();
-function onKey(e){if(e._h)return;e._h=1;
-  if(e.code==='Space'||e.code==='ArrowUp'||e.code==='ArrowDown'||e.code==='Enter'){e.preventDefault();if(!e.repeat)flip();}
+/* =====================================================================
+   11. INPUT: click / tap / keyboard
+   ===================================================================== */
+
+window.addEventListener('pointerdown', e => {
+  if (e.target === muteBtn) return;
+  e.preventDefault();
+  try { window.focus(); cv.focus(); } catch(x){}
+  flip();
+});
+
+// Registered on both window and document; the _h flag makes sure one key press counts once
+function onKey(e){
+  if (e._h) return;
+  e._h = 1;
+  if (['Space','ArrowUp','ArrowDown','Enter'].includes(e.code)){
+    e.preventDefault();
+    if (!e.repeat) flip();
+  }
 }
-window.addEventListener('keydown',onKey,true);document.addEventListener('keydown',onKey,true);
+window.addEventListener('keydown', onKey, true);
+document.addEventListener('keydown', onKey, true);
+
+
+/* =====================================================================
+   12. GAME LOOP: fixed-timestep physics, drawing every frame
+   ===================================================================== */
+
+let accumulator = 0, lastTime = performance.now();
+
+function loop(now){
+  accumulator += Math.min(0.1, (now - lastTime) / 1000);
+  lastTime = now;
+  while (accumulator >= STEP){ update(STEP); accumulator -= STEP; }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+cv.focus();
+reset();
+requestAnimationFrame(loop);
+
 })();
 </script>
 </body>
