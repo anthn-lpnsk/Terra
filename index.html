@@ -123,7 +123,7 @@ let coins = 0;
 try { coins = +localStorage.getItem('terrabird-coins') || 0; } catch(e){}
 
 function saveCoins(){
-  try {localStorage.setItem('terrabird-coins' , coins); } catch(e){}
+  try { localStorage.setItem('terrabird-coins', coins); } catch(e){}
 }
 
 let muted = false;
@@ -284,14 +284,6 @@ function update(dt){
     if (hit(p)){ die(); return; }
   }
 
-  if (ip.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
-    p.scored = true;
-    score++;
-    coins += coin_PER_PIPE;
-    saveCoins();
-    tone(660, 990, 0.12, 'triangle', 0.07);
-  }
-
   // Ceiling and floor
   if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
     y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
@@ -307,7 +299,7 @@ function update(dt){
 function drawFox(){
   ctx.save();
   ctx.translate(FOX_X, Math.round(y));
-  ctx.scale(1, dir);                  
+  ctx.scale(1, dir);                  // flips the fox upside-down when dir is -1
   ctx.rotate(tilt * 0.25 * dir);
   for (let r = 0; r < FOX_SPRITE.length; r++){
     for (let c = 0; c < 16; c++){
@@ -386,7 +378,7 @@ function draw(){
     ctx.fillRect(cx, cy, 64, 12);
     ctx.fillRect(cx+12, cy-12, 36, 12);
   }
- 
+
   // Pipes
   for (const p of pipes) drawPipe(p);
 
@@ -409,7 +401,7 @@ function draw(){
   if (state === 'play'){
     text(score, W/2, 84, 32, '#fff');
     drawCoin(W/2 - 36, 104);
-    text(coins, W/2 - 16, 116, 12, '#ffd23f', 'left');    
+    text(coins, W/2 - 16, 116, 12, '#ffd23f', 'left');
   }
   if (state === 'ready'){
     text('TERRABIRD', W/2, 190, 28, '#ffd23f');
