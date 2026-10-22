@@ -272,7 +272,7 @@ function update(dt){
   if (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
   while (nextX < W + PIPE_SPACING) spawn();
 
-  // Scoring and pipe collisions
+   // Scoring and pipe collisions
   for (const p of pipes){
     if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
       p.scored = true;
@@ -283,7 +283,7 @@ function update(dt){
     }
     if (hit(p)){ die(); return; }
   }
-
+  
   // Ceiling and floor
   if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
     y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
