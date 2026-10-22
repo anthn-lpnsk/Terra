@@ -277,6 +277,8 @@ function update(dt){
     if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
       p.scored = true;
       score++;
+      coins += COIN_PER_PIPE;
+      saveCoins();
       tone(660, 990, 0.12, 'triangle', 0.07);
     }
     if (hit(p)){ die(); return; }
@@ -415,7 +417,7 @@ function draw(){
     text('TO FLIP GRAVITY', W/2, 454, 10, '#fff');
     text('BEST ' + best, W/2, 500, 12, '#ffd9a0');
     drawCoin(W/2 - 36, 520);
-    text(coins, W/2 - 16, 532, 12, '#ff23f', 'left');
+    text(coins, W/2 - 16, 532, 12, '#ffd23f', 'left');
   }
   if (state === 'over'){
     ctx.fillStyle = '#1d2433'; ctx.fillRect(36, 196, W-72, 232);
@@ -425,7 +427,7 @@ function draw(){
     text('BEST ' + best, W/2, 346, 14, '#ffd9a0');
     text('TAP TO RETRY', W/2, 396, 11, '#fff');
     drawCoin(W/2 - 36, 360);
-    text(coins, W/2 - 16, 372, 12 '#ffd23f', 'left');
+    text(coins, W/2 - 16, 372, 12, '#ffd23f', 'left');
   }
 
   ctx.restore();
