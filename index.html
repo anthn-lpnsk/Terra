@@ -65,6 +65,9 @@ const EXTREME_CHANCE     = 0.35; // chance of such a swing
 // Timing
 const STEP = 1/120;  // physics step in seconds
 
+// Coins
+const COIN_PER_PIPE = 1;  // coins earned per pipe passed
+
 // Colors
 const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
 const CLOUD_COLOR = '#6a5aa8';
@@ -115,6 +118,13 @@ resize();
 
 let best = 0;
 try { best = +localStorage.getItem('terrabird-best') || 0; } catch(e){}
+
+let coins = 0;
+try { coins = +localStorage.getItem('terrabird-coins') || 0; } catch(e){}
+
+function saveCoins(){
+  try {localStorage.setItem('terrabird-coins' , coins); } catch(e){}
+}
 
 let muted = false;
 try { muted = localStorage.getItem('terrabird-mute') === '1'; } catch(e){}
@@ -272,6 +282,14 @@ function update(dt){
     if (hit(p)){ die(); return; }
   }
 
+  if (ip.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
+    p.scored = true;
+    score++;
+    coins += coin_PER_PIPE;
+    saveCoins();
+    tone(660, 990, 0.12, 'triangle', 0.07);
+  }
+
   // Ceiling and floor
   if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
     y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
@@ -323,6 +341,12 @@ function drawPipe(p){
   body(bot, H-bot+4);     // lower pillar
   cap(top-18);            // upper lip
   cap(bot);               // lower lip
+}
+
+function drawCoin(x, yy){
+  ctx.fillStyle = '#1d2433'; ctx.fillRect(x, yy, 14, 14);
+  ctx.fillStyle = '#ffd23f'; ctx.fillRect(x+2, yy+2, 10, 10);
+  ctx.fillStyle = '#fff3b0'; ctx.fillRect(x+4, yy+4, 3, 3);
 }
 
 // Text with a dark drop shadow
@@ -382,12 +406,16 @@ function draw(){
   // Screens
   if (state === 'play'){
     text(score, W/2, 84, 32, '#fff');
+    drawCoin(W/2 - 36, 104);
+    text(coins, W/2 - 16, 116, 12, '#ffd23f', 'left');    
   }
   if (state === 'ready'){
     text('TERRABIRD', W/2, 190, 28, '#ffd23f');
     text('TAP / CLICK / SPACE', W/2, 430, 10, '#fff');
     text('TO FLIP GRAVITY', W/2, 454, 10, '#fff');
     text('BEST ' + best, W/2, 500, 12, '#ffd9a0');
+    drawCoin(W/2 - 36, 520);
+    text(coins, W/2 - 16, 532, 12, '#ff23f', 'left');
   }
   if (state === 'over'){
     ctx.fillStyle = '#1d2433'; ctx.fillRect(36, 196, W-72, 232);
@@ -396,6 +424,8 @@ function draw(){
     text('SCORE ' + score, W/2, 310, 14, '#fff');
     text('BEST ' + best, W/2, 346, 14, '#ffd9a0');
     text('TAP TO RETRY', W/2, 396, 11, '#fff');
+    drawCoin(W/2 - 36, 360);
+    text(coins, W/2 - 16, 372, 12 '#ffd23f', 'left');
   }
 
   ctx.restore();
