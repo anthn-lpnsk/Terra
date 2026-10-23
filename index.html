@@ -117,10 +117,16 @@ const ITEMS = [
   {id:'skin-green',  tab:'skins',  name:'MINT',    price:15, colors:{P:'#7be0a4', S:'#3fa86a'}},
   {id:'skin-gold',   tab:'skins',  name:'GOLD',    price:30, colors:{P:'#ffd23f', S:'#d9a21b'}},
   {id:'trail-none',     tab:'trails', name:'NONE',     price:0},
+  {id:'trail-gradient', tab:'trails', name:'GRADIENT', price:15},
   {id:'trail-smoke',    tab:'trails', name:'SMOKE',    price:20},
   {id:'trail-confetti', tab:'trails', name:'CONFETTI', price:30},
   {id:'trail-rainbow',  tab:'trails', name:'RAINBOW',  price:50}
 ];
+
+// Trails
+const TRAIL_INTERVAL = 0.02;  // seconds between trail particles (lower = denser)
+const CONFETTI_COLORS = ['#e8483c','#ffd23f','#7be0a4','#5ec8f2','#f08ac8'];
+const RAINBOW_COLORS  = ['#e8483c','#f08a2e','#ffd23f','#7be0a4','#5ec8f2','#a07be8'];
 
 // Colors
 const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
@@ -306,7 +312,7 @@ storeItems.addEventListener('click', e => {
    ===================================================================== */
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
-let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake;
+let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer;
 
 function reset(){
   y = H/2;          // fox height
@@ -319,6 +325,8 @@ function reset(){
   tilt = 0;
   rings = [];       // flip animation squares
   shake = 0;        // screen shake timer
+  particles = [];   // trail particles
+  trailTimer = 0;
   while (nextX < W + PIPE_SPACING*2) spawn();
 }
 
@@ -344,6 +352,57 @@ function spawn(){
 
   pipes.push({x:nextX, c:center, g:gap, scored:false});
   nextX += PIPE_SPACING;
+}
+
+
+/* =====================================================================
+   6b. TRAILS: particles left behind the glider
+   ===================================================================== */
+
+// Adds new particles for the equipped trail (called while playing)
+function emitTrail(dt){
+  const id = equipped.trails;
+  if (id === 'trail-none') return;
+  trailTimer += dt;
+  while (trailTimer >= TRAIL_INTERVAL){
+    trailTimer -= TRAIL_INTERVAL;
+    const x = FOX_X - 22, jitter = (Math.random() - 0.5) * 8;
+    if (id === 'trail-smoke')
+      particles.push({k:'smoke', x:x, y:y + jitter, vx:-10, vy:(Math.random()-0.5)*20, life:0.7, max:0.7, size:6 + Math.random()*4});
+    else if (id === 'trail-confetti')
+      particles.push({k:'confetti', x:x, y:y + jitter, vx:-20 - Math.random()*50, vy:(Math.random()-0.5)*120, life:0.9, max:0.9, size:4,
+                      color:CONFETTI_COLORS[Math.floor(Math.random()*CONFETTI_COLORS.length)]});
+    else if (id === 'trail-rainbow')
+      particles.push({k:'rainbow', x:x, y:y, vx:0, vy:0, life:0.6, max:0.6, size:6,
+                      color:RAINBOW_COLORS[Math.floor(performance.now()/60) % RAINBOW_COLORS.length]});
+    else if (id === 'trail-gradient')
+      particles.push({k:'gradient', x:x, y:y, vx:0, vy:0, life:0.6, max:0.6, size:8});
+  }
+}
+
+// Moves and ages particles; they scroll left with the pipes while playing
+function updateParticles(dt){
+  const scroll = state === 'play' ? speed : 0;
+  for (const p of particles){
+    p.x += (p.vx - scroll) * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
+  }
+  particles = particles.filter(p => p.life > 0);
+}
+
+function drawParticles(){
+  for (const p of particles){
+    const a = p.life / p.max;   // 1 = new, 0 = gone
+    let size = p.size, color = p.color;
+    if (p.k === 'smoke'){ color = '#c8c8d8'; size = p.size * (1 + (1 - a) * 0.6); }
+    if (p.k === 'gradient'){ color = 'hsl(' + Math.round(50 + 230 * (1 - a)) + ',90%,60%)'; }
+    size = Math.round(size);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(p.x - size/2), Math.round(p.y - size/2), size, size);
+  }
+  ctx.globalAlpha = 1;
 }
 
 
@@ -388,6 +447,7 @@ function update(dt){
   // Effects keep running in every state
   for (const r of rings){ r.r += 90*dt; r.a -= 3*dt; }
   rings = rings.filter(r => r.a > 0);
+  updateParticles(dt);
   if (shake > 0) shake -= dt;
 
   // Title screen: fox bobs gently, nothing else moves
@@ -398,6 +458,7 @@ function update(dt){
 
   // Fox: constant speed, direction set by dir
   y += dir * FOX_SPEED * dt;
+  emitTrail(dt);
   tilt += (dir*0.5 - tilt) * Math.min(1, dt*14);  // smooth visual tilt
 
   // Pipes: speed up with score, scroll left
@@ -535,6 +596,7 @@ function draw(){
     ctx.strokeRect(Math.round(r.x-r.r), Math.round(r.y-r.r), Math.round(r.r*2), Math.round(r.r*2));
   }
 
+  drawParticles();   // trail sits behind the fox
   drawFox();
 
   // Screens
