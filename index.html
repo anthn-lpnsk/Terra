@@ -20,6 +20,24 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
 
 #mute{position:absolute;top:12px;right:12px;width:36px;height:36px;border:3px solid #1d2433;background:var(--btn);color:var(--ink);font:14px "Press Start 2P",monospace;cursor:pointer}
 #mute:focus-visible{outline:3px solid #ffd23f}
+/* Store */
+[hidden]{display:none!important}
+#storeBtn{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:60px;height:60px;padding:4px;background:#c49a6c;border:4px solid #5a3a1e;box-shadow:3px 3px 0 #0006;cursor:pointer}
+#storeBtn:focus-visible,#store button:focus-visible{outline:3px solid #ffd23f}
+#store{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:#000a;padding:14px;box-sizing:border-box}
+#store .panel{width:100%;height:100%;max-height:560px;display:flex;flex-direction:column;gap:8px;background:#c49a6c;border:4px solid #5a3a1e;padding:10px;box-sizing:border-box;color:#3b2412;font-size:10px}
+#store .head{display:flex;align-items:center;justify-content:space-between;font-size:14px}
+#store button{font:inherit;color:#3b2412;background:#e0c49a;border:3px solid #5a3a1e;padding:6px 8px;cursor:pointer}
+#store button:disabled{opacity:.6;cursor:default}
+#store .tabs{display:flex;gap:6px}
+#store .tabs button{flex:1;font-size:9px}
+#store .tabs button.on{background:#8a5a2e;color:#fff}
+#storeMsg{min-height:12px;font-size:8px;color:#8a1f1f}
+#storeItems{flex:1;min-height:0;overflow-y:auto;touch-action:pan-y;border:4px solid #5a3a1e;background:#d8b88c;padding:8px;display:flex;flex-direction:column;gap:8px}
+#storeItems .item{display:flex;align-items:center;gap:8px;background:#e8d0a8;border:3px solid #5a3a1e;padding:6px}
+#storeItems .nm{flex:1}
+#storeItems .sw{width:28px;height:28px;border:3px solid #5a3a1e;flex:none}
+#storeItems .soon{text-align:center;margin:auto;font-size:12px}
 </style>
 </head>
 
@@ -28,6 +46,28 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
 <div id="wrap">
   <canvas id="c" tabindex="0" aria-label="Terrabird game"></canvas>
   <button id="mute" aria-label="Toggle sound" title="Sound on/off">♪</button>
+  <button id="storeBtn" aria-label="Open store" title="Store" hidden>
+    <svg viewBox="0 0 16 16" width="44" height="44" shape-rendering="crispEdges" aria-hidden="true">
+      <rect x="1" y="2" width="14" height="4" fill="#d9382e"/>
+      <rect x="3" y="2" width="2" height="4" fill="#fff"/><rect x="7" y="2" width="2" height="4" fill="#fff"/><rect x="11" y="2" width="2" height="4" fill="#fff"/>
+      <rect x="1" y="6" width="2" height="1" fill="#d9382e"/><rect x="5" y="6" width="2" height="1" fill="#d9382e"/><rect x="9" y="6" width="2" height="1" fill="#d9382e"/><rect x="13" y="6" width="2" height="1" fill="#d9382e"/>
+      <rect x="2" y="7" width="1" height="5" fill="#5a3a1e"/><rect x="13" y="7" width="1" height="5" fill="#5a3a1e"/>
+      <rect x="5" y="8" width="2" height="2" fill="#ffd23f"/><rect x="8" y="8" width="2" height="2" fill="#f08a2e"/>
+      <rect x="1" y="10" width="14" height="5" fill="#8a5a2e"/><rect x="1" y="10" width="14" height="1" fill="#5a3a1e"/>
+    </svg>
+  </button>
+  <div id="store" hidden role="dialog" aria-label="Store">
+    <div class="panel">
+      <div class="head"><span>STORE</span><span id="storeCoins"></span><button id="storeClose" aria-label="Close store">X</button></div>
+      <div class="tabs">
+        <button data-tab="skins">SKINS</button>
+        <button data-tab="trails">TRAILS</button>
+        <button data-tab="soon">SOON</button>
+      </div>
+      <div id="storeMsg"></div>
+      <div id="storeItems"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -68,6 +108,20 @@ const STEP = 1/120;  // physics step in seconds
 // Coins
 const COIN_PER_PIPE = 1;  // coins earned per pipe passed
 
+// Store items. tab: 'skins' or 'trails'. price 0 = owned from the start.
+// A skin's colors replace the glider's P (main) and S (shade) pixels.
+const ITEMS = [
+  {id:'skin-white',  tab:'skins',  name:'CLASSIC', price:0,  colors:{P:'#ffffff', S:'#c4cddc'}},
+  {id:'skin-red',    tab:'skins',  name:'RED',     price:10, colors:{P:'#e8483c', S:'#a82a22'}},
+  {id:'skin-blue',   tab:'skins',  name:'SKY',     price:10, colors:{P:'#5ec8f2', S:'#2f8fc0'}},
+  {id:'skin-green',  tab:'skins',  name:'MINT',    price:15, colors:{P:'#7be0a4', S:'#3fa86a'}},
+  {id:'skin-gold',   tab:'skins',  name:'GOLD',    price:30, colors:{P:'#ffd23f', S:'#d9a21b'}},
+  {id:'trail-none',     tab:'trails', name:'NONE',     price:0},
+  {id:'trail-smoke',    tab:'trails', name:'SMOKE',    price:20},
+  {id:'trail-confetti', tab:'trails', name:'CONFETTI', price:30},
+  {id:'trail-rainbow',  tab:'trails', name:'RAINBOW',  price:50}
+];
+
 // Colors
 const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
 const CLOUD_COLOR = '#6a5aa8';
@@ -75,13 +129,13 @@ const PIPE_COLORS = {body:'#2f8f8a', light:'#46b3ab', dark:'#206b67', outline:'#
 const STARS = [[30,40],[90,120],[170,60],[250,150],[320,50],[60,220],[290,260],[200,200],[140,300],[330,330]]; // [x, y]
 
 // Fox picture: each letter is one pixel (see FOX_COLORS). "." = empty.
-const FOX_COLORS = {L:'#c4cddc', W:'#ffffff', K:'#1d2433', O:'#f08a2e', N:'#1d2433', G:'#9aa0aa', Y:'#ffd23f'};
+const FOX_COLORS = {P:'#ffffff', S:'#c4cddc', W:'#ffffff', K:'#1d2433', O:'#f08a2e', N:'#1d2433', G:'#9aa0aa', Y:'#ffd23f'};
 const FOX_SPRITE = [
   "..........KKK...",
-  "......KKKKWWWWK.",
-  "..KKKKWWWWWWWWWK",
-  "KKWWWWWWLLLLLLK.",
-  ".KKLLLLLLKKKKK..",
+  "......KKKKPPPPK.",
+  "..KKKKPPPPPPPPPK",
+  "KKPPPPPPSSSSSSK.",
+  ".KKSSSSSSKKKKK..",
   "....K..K.O...O..",
   "...OOOOOOOOOOOO.",
   "..OOOOOOOOOKOWWN",
@@ -162,6 +216,89 @@ function tone(f1, f2, d, type, vol){
     osc.start(t); osc.stop(t + d);
   } catch(e){}
 }
+
+
+/* =====================================================================
+   4b. STORE: saved purchases, store screen, buying and equipping
+   ===================================================================== */
+
+let owned = [];                                    // ids of items you own
+let equipped = {skins:'skin-white', trails:'trail-none'};  // one item per tab
+try { const o = JSON.parse(localStorage.getItem('terrabird-owned')); if (Array.isArray(o)) owned = o; } catch(e){}
+try { const q = JSON.parse(localStorage.getItem('terrabird-equipped')); if (q && typeof q === 'object') Object.assign(equipped, q); } catch(e){}
+for (const it of ITEMS) if (it.price === 0 && !owned.includes(it.id)) owned.push(it.id);
+
+function saveStore(){
+  try {
+    localStorage.setItem('terrabird-owned', JSON.stringify(owned));
+    localStorage.setItem('terrabird-equipped', JSON.stringify(equipped));
+  } catch(e){}
+}
+
+// Colors of the equipped skin ({} if none), used by drawFox()
+function skinColors(){
+  const it = ITEMS.find(i => i.id === equipped.skins);
+  return (it && it.colors) || {};
+}
+
+const storeBtn   = document.getElementById('storeBtn');
+const storeEl    = document.getElementById('store');
+const storeItems = document.getElementById('storeItems');
+const storeCoins = document.getElementById('storeCoins');
+const storeMsg   = document.getElementById('storeMsg');
+let storeOpen = false, storeTab = 'skins', msgTimer = null;
+
+function showMsg(t){
+  storeMsg.textContent = t;
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { storeMsg.textContent = ''; }, 1800);
+}
+
+function swatchStyle(it){
+  if (it.colors) return 'background:linear-gradient(' + it.colors.P + ' 50%,' + it.colors.S + ' 50%)';
+  return 'background:#8a5a2e';
+}
+
+function renderStore(){
+  storeCoins.textContent = 'COINS ' + coins;
+  for (const b of storeEl.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === storeTab);
+  if (storeTab === 'soon'){ storeItems.innerHTML = '<div class="soon">COMING SOON</div>'; return; }
+  storeItems.innerHTML = ITEMS.filter(i => i.tab === storeTab).map(i => {
+    const has = owned.includes(i.id), on = equipped[i.tab] === i.id;
+    const label = on ? 'EQUIPPED' : has ? 'EQUIP' : i.price + ' COINS';
+    return '<div class="item"><div class="sw" style="' + swatchStyle(i) + '"></div>' +
+           '<div class="nm">' + i.name + '</div>' +
+           '<button data-id="' + i.id + '"' + (on ? ' disabled' : '') + '>' + label + '</button></div>';
+  }).join('');
+}
+
+function buyOrEquip(id){
+  const it = ITEMS.find(i => i.id === id);
+  if (!it) return;
+  if (!owned.includes(id)){
+    if (coins < it.price){ showMsg('NOT ENOUGH COINS'); tone(200, 120, 0.15, 'square', 0.05); return; }
+    coins -= it.price; saveCoins();
+    owned.push(id);
+    tone(660, 990, 0.12, 'triangle', 0.07);
+  }
+  equipped[it.tab] = id;   // buying also equips
+  saveStore();
+  renderStore();
+}
+
+function openStore(){ storeOpen = true; storeEl.hidden = false; renderStore(); }
+function closeStore(){ storeOpen = false; storeEl.hidden = true; }
+
+storeBtn.addEventListener('click', openStore);
+document.getElementById('storeClose').addEventListener('click', closeStore);
+storeEl.querySelector('.tabs').addEventListener('click', e => {
+  const t = e.target.closest('button');
+  if (t){ storeTab = t.dataset.tab; renderStore(); }
+});
+storeItems.addEventListener('click', e => {
+  const b = e.target.closest('button[data-id]');
+  if (b) buyOrEquip(b.dataset.id);
+});
 
 
 /* =====================================================================
@@ -272,7 +409,7 @@ function update(dt){
   if (pipes.length && pipes[0].x + PIPE_W < -10) pipes.shift();
   while (nextX < W + PIPE_SPACING) spawn();
 
-   // Scoring and pipe collisions
+  // Scoring and pipe collisions
   for (const p of pipes){
     if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
       p.scored = true;
@@ -283,7 +420,7 @@ function update(dt){
     }
     if (hit(p)){ die(); return; }
   }
-  
+
   // Ceiling and floor
   if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
     y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
@@ -297,6 +434,7 @@ function update(dt){
    ===================================================================== */
 
 function drawFox(){
+  const skin = skinColors();
   ctx.save();
   ctx.translate(FOX_X, Math.round(y));
   ctx.scale(1, dir);                  // flips the fox upside-down when dir is -1
@@ -305,7 +443,7 @@ function drawFox(){
     for (let c = 0; c < 16; c++){
       const ch = FOX_SPRITE[r][c];
       if (ch !== '.'){
-        ctx.fillStyle = FOX_COLORS[ch];
+        ctx.fillStyle = skin[ch] || FOX_COLORS[ch];
         ctx.fillRect(-24 + c*SPRITE_PIXEL, -16 + r*SPRITE_PIXEL, SPRITE_PIXEL, SPRITE_PIXEL);
       }
     }
@@ -358,6 +496,8 @@ try { document.fonts.load('16px "Press Start 2P"'); } catch(e){}
    ===================================================================== */
 
 function draw(){
+  const showStoreBtn = state === 'ready' && !storeOpen;   // icon only on the title screen
+  if (storeBtn.hidden === showStoreBtn) storeBtn.hidden = !showStoreBtn;
   ctx.save();
   if (shake > 0) ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8);
 
@@ -431,7 +571,7 @@ function draw(){
    ===================================================================== */
 
 window.addEventListener('pointerdown', e => {
-  if (e.target === muteBtn) return;
+  if (e.target === muteBtn || e.target.closest('#storeBtn, #store')) return;
   e.preventDefault();
   try { window.focus(); cv.focus(); } catch(x){}
   flip();
@@ -441,6 +581,7 @@ window.addEventListener('pointerdown', e => {
 function onKey(e){
   if (e._h) return;
   e._h = 1;
+  if (storeOpen){ if (e.code === 'Escape') closeStore(); return; }   // game keys off while store is open
   if (['Space','ArrowUp','ArrowDown','Enter'].includes(e.code)){
     e.preventDefault();
     if (!e.repeat) flip();
