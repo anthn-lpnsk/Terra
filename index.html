@@ -18,11 +18,10 @@ body{background:var(--bg);color:var(--ink);display:flex;align-items:center;justi
 #wrap{position:relative}
 canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d2433;box-shadow:6px 6px 0 #0006}
 
-#mute,#pauseBtn{position:absolute;top:12px;width:38px;height:38px;padding:5px;background:3c49a6c;border:3px solid #5a3a1e;box-shadow:2px 2px 0 #0006;color:#3b2412;cursor:pointer}
+#mute,#pauseBtn{position:absolute;top:12px;width:38px;height:38px;padding:5px;background:#c49a6c;border:3px solid #5a3a1e;box-shadow:2px 2px 0 #0006;color:#3b2412;cursor:pointer}
 #mute{right:12px}
 #pauseBtn{left:12px}
 #mute:focus-visible,#pauseBtn:focus-visible{outline:3px solid #ffd23f}
-
 /* Store */
 [hidden]{display:none!important}
 #storeBtn{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:60px;height:60px;padding:4px;background:#c49a6c;border:4px solid #5a3a1e;box-shadow:3px 3px 0 #0006;cursor:pointer}
@@ -33,12 +32,13 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
 #store button{font:inherit;color:#3b2412;background:#e0c49a;border:3px solid #5a3a1e;padding:6px 8px;cursor:pointer}
 #store button:disabled{opacity:.6;cursor:default}
 #store .tabs{display:flex;gap:6px}
-#store .tabs button{flex:1;font-size:9px}
+#store .tabs button{flex:1;font-size:8px;padding:6px 2px}
 #store .tabs button.on{background:#8a5a2e;color:#fff}
 #storeMsg{min-height:12px;font-size:8px;color:#8a1f1f}
 #storeItems{flex:1;min-height:0;overflow-y:auto;touch-action:pan-y;border:4px solid #5a3a1e;background:#d8b88c;padding:8px;display:flex;flex-direction:column;gap:8px}
 #storeItems .item{display:flex;align-items:center;gap:8px;background:#e8d0a8;border:3px solid #5a3a1e;padding:6px}
 #storeItems .nm{flex:1}
+#storeItems .d{font-size:7px;opacity:.8;line-height:1.6}
 #storeItems .sw{width:28px;height:28px;border:3px solid #5a3a1e;flex:none}
 #storeItems .soon{text-align:center;margin:auto;font-size:12px}
 </style>
@@ -137,29 +137,27 @@ const RAINBOW_COLORS  = ['#e8483c','#f08a2e','#ffd23f','#7be0a4','#5ec8f2','#a07
 
 // Achievements. stat: 'score' (one run) or a lifetime count (totalPipes, flips, runs, purchases)
 const ACHIEVEMENTS = [
-  {id:'a-score1', name:'FIRST FLIGHT', desc:'SCORE 1 IN A RUN', stat:'score', goal:1,   reward:2},
-  {id:'a-score10', name:'DOUBLE DIGITS', desc:'SCORE 10 IN A RUN', stat:'score', goal:10,  reward:5},
-  {id:'a-score25', name: 'HIGH FLYER', desc:'SCORE 25 IN A RUN', stat:'score', goal:25, reward:15},
-  {id:'a-score50', name: 'SKY MASTER', desc:'SCORE 50 IN A RUN', stat: 'score', goal:50, reward:40},
-  {id:'a-pipes100', name: 'PILLAR PASSER', desc:'PASS 100 PILLARS', stat:'totalPipes', goal:100, reward:50},
-  {id:'a-flips200', name:'FLIP FLOPPA', desc:'FLIP GRAVITY 200X', stat:'flips', goal:200, reward: 20},
-  {id:'a-runs100', name:'DEDICATED', desc:'CRASH 100 TIMES', stat:'runs', goal:100, reward:10},
-  {id: 'a-buy1', name:'FIRST PURCHASE', desc:'BUY AN ITEM', stat:'purchases', goal:1, reward:5}
+  {id:'a-score1',   name:'FIRST FLIGHT',   desc:'SCORE 1 IN A RUN',  stat:'score',      goal:1,   reward:2},
+  {id:'a-score10',  name:'DOUBLE DIGITS',  desc:'SCORE 10 IN A RUN', stat:'score',      goal:10,  reward:5},
+  {id:'a-score25',  name:'HIGH FLYER',     desc:'SCORE 25 IN A RUN', stat:'score',      goal:25,  reward:15},
+  {id:'a-score50',  name:'SKY MASTER',     desc:'SCORE 50 IN A RUN', stat:'score',      goal:50,  reward:40},
+  {id:'a-pipes100', name:'PILLAR PASSER',  desc:'PASS 100 PILLARS',  stat:'totalPipes', goal:100, reward:50},
+  {id:'a-flips200', name:'FLIP FLOPPA',    desc:'FLIP GRAVITY 200X', stat:'flips',      goal:200, reward:20},
+  {id:'a-runs100',  name:'DEDICATED',      desc:'CRASH 100 TIMES',   stat:'runs',       goal:100, reward:10},
+  {id:'a-buy1',     name:'FIRST PURCHASE', desc:'BUY AN ITEM',       stat:'purchases',  goal:1,   reward:5}
 ];
 
-// Sky by the time of day. Sky = 6 bands (top to bottom), cloud = cloud color, stars = star visibility 0-1 
+// Sky by time of day. sky = 6 bands (top to bottom), cloud = cloud color, stars = star visibility 0-1
 const SKY_PALETTES = {
-  night: {sky:['#0b0e24','_12183a','#1b2150','#262a63','#343a78','#454a8c'], cloud:'#3a3f78', stars:1},
-  dawn: {sky:['#2b3470','#51508f','#8a6a9e','#d78fa0','#f2b28c','#f8d29a'], cloud:'#a889b8', stars:0.4},
-   day:    {sky:['#3b97e0','#58abe9','#75bdef','#92cff4','#b0dff8','#cdeefb'], cloud:'#ffffff', stars:0},
+  night:  {sky:['#0b0e24','#12183a','#1b2150','#262a63','#343a78','#454a8c'], cloud:'#3a3f78', stars:1},
+  dawn:   {sky:['#2b3470','#51508f','#8a6a9e','#d78fa0','#f2b28c','#f8d29a'], cloud:'#a889b8', stars:0.4},
+  day:    {sky:['#3b97e0','#58abe9','#75bdef','#92cff4','#b0dff8','#cdeefb'], cloud:'#ffffff', stars:0},
   sunset: {sky:['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'], cloud:'#6a5aa8', stars:0.6}
 };
-//[hour of day 0-24, palette].The sky blends smoothly between neighbors.
-const SKY_SCHEDULE = [[0,'night'],[5,'night'],[6.5,'dawn'],[8,'day'],[17,'day'],[18.5,'sunset'],[20,5,'night'],[24,'night']];
+// [hour of day 0-24, palette]. The sky blends smoothly between neighbors.
+const SKY_SCHEDULE = [[0,'night'],[5,'night'],[6.5,'dawn'],[8,'day'],[17,'day'],[18.5,'sunset'],[20.5,'night'],[24,'night']];
 
 // Colors
-const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
-const CLOUD_COLOR = '#6a5aa8';
 const PIPE_COLORS = {body:'#2f8f8a', light:'#46b3ab', dark:'#206b67', outline:'#1d2433'};
 const STARS = [[30,40],[90,120],[170,60],[250,150],[320,50],[60,220],[290,260],[200,200],[140,300],[330,330]]; // [x, y]
 
@@ -221,10 +219,10 @@ try { muted = localStorage.getItem('terrabird-mute') === '1'; } catch(e){}
 const muteBtn = document.getElementById('mute');
 function paintMute(){
   const cross = [[7,4],[8,5],[9,6],[10,7],[10,4],[9,5],[8,6],[7,7]]
-  .map(p => '<rect x="' + p[0] + '"y="' + p[1] + '"width="1" height="1"/>').join('');
+    .map(p => '<rect x="' + p[0] + '" y="' + p[1] + '" width="1" height="1"/>').join('');
   const waves = '<rect x="7" y="4" width="1" height="4"/><rect x="9" y="3" width="1" height="6"/>';
-  muteBtn.innerHTML = 'svg viewBox="0 0 12 12" width="24" height"24" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">'+
-    '<rect x="1" y="4" width="2" height+"4"/><rect x="3" y="3" width="1" height="6"/><rect x="4" y+"2" width="1" height="8"/>' +
+  muteBtn.innerHTML = '<svg viewBox="0 0 12 12" width="24" height="24" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">' +
+    '<rect x="1" y="4" width="2" height="4"/><rect x="3" y="3" width="1" height="6"/><rect x="4" y="2" width="1" height="8"/>' +
     (muted ? cross : waves) + '</svg>';
 }
 paintMute();
@@ -259,27 +257,29 @@ function tone(f1, f2, d, type, vol){
   } catch(e){}
 }
 
+
 /* =====================================================================
    4a. ACHIEVEMENTS: goals, coin rewards, pop-ups
    ===================================================================== */
 
-   let stats = {totalPipes:0, flips:0, runs:0, purchases:0}; // lifetime counts
-   try { const q = JSON.parse(localStorage.getItem('terrabird-stats')); if (q && typeof q === 'object') Object.assign(stats, q); } catch(e){}
-   let unlocked = [];
-   try { const u = JSON.parse(localStorage.getItem('terrabid-ach')); if (Array.isArray(u)) unlocked = u; } catch(e){}
+let stats = {totalPipes:0, flips:0, runs:0, purchases:0};   // lifetime counts
+try { const q = JSON.parse(localStorage.getItem('terrabird-stats')); if (q && typeof q === 'object') Object.assign(stats, q); } catch(e){}
+let unlocked = [];                                           // ids of finished achievements
+try { const u = JSON.parse(localStorage.getItem('terrabird-ach')); if (Array.isArray(u)) unlocked = u; } catch(e){}
 
-   function saveStats(){
-    try {
-      localStorage.setItem('terrabird-stats', JSON.stringify(stats));
-      localStorage.setItem('terrabird-ach', JSON.stringify(unlocked));
-    } catch(e){}
-  }
+function saveStats(){
+  try {
+    localStorage.setItem('terrabird-stats', JSON.stringify(stats));
+    localStorage.setItem('terrabird-ach', JSON.stringify(unlocked));
+  } catch(e){}
+}
 
-  function achValue(){ return a.stat === 'score' ? score : (stats[a.stat] || 0); }
+// Current value used to unlock an achievement
+function achValue(a){ return a.stat === 'score' ? score : (stats[a.stat] || 0); }
 
-  const toasts = []; // achievement pop-ups waiting to show
+const toasts = [];   // achievement pop-ups waiting to show
 
-//Unlocks anything newly reached and pays the coin reward
+// Unlocks anything newly reached and pays the coin reward
 function checkAchievements(){
   for (const a of ACHIEVEMENTS){
     if (unlocked.includes(a.id) || achValue(a) < a.goal) continue;
@@ -299,7 +299,7 @@ function drawToast(){
   ctx.fillStyle = '#1d2433'; ctx.fillRect(30, 548, W-60, 62);
   ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 4; ctx.strokeRect(34, 552, W-68, 54);
   text('ACHIEVEMENT', W/2, 574, 9, '#ffd23f');
-  text(t.name + ' +' + t.reward, W/2, 596, 10, '#fff');
+  text(t.name + '  +' + t.reward, W/2, 596, 10, '#fff');
 }
 
 
@@ -348,14 +348,14 @@ function renderStore(){
   storeCoins.textContent = 'COINS ' + coins;
   for (const b of storeEl.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === storeTab);
   if (storeTab === 'awards'){
-      storeItems.innerHTML = ACHIEVEMENTS.map(a => {
-        const done = unlocked.includes(a.id);
-        const v = a.stat === 'score' ? best : (stats[a.stat] || 0);
-        const right = done ? 'DONE' : Math.min(v, a.goal) + '/' + a.goal + '<br>+' + a.reward;
-        return '<div class="item"><div class="sw" style="background:' + (done ? '#7be0a4' : '#8a5a2e') + '"></div>' +
-               '<div class="nm">' + a.name + '<br><span class="d">' + a.desc + '</span></div><div>' + right + '</div></div>';
-      }).join('');
-      return;
+    storeItems.innerHTML = ACHIEVEMENTS.map(a => {
+      const done = unlocked.includes(a.id);
+      const v = a.stat === 'score' ? best : (stats[a.stat] || 0);
+      const right = done ? 'DONE' : Math.min(v, a.goal) + '/' + a.goal + '<br>+' + a.reward;
+      return '<div class="item"><div class="sw" style="background:' + (done ? '#7be0a4' : '#8a5a2e') + '"></div>' +
+             '<div class="nm">' + a.name + '<br><span class="d">' + a.desc + '</span></div><div>' + right + '</div></div>';
+    }).join('');
+    return;
   }
   if (storeTab === 'soon'){ storeItems.innerHTML = '<div class="soon">COMING SOON</div>'; return; }
   storeItems.innerHTML = ITEMS.filter(i => i.tab === storeTab).map(i => {
@@ -374,6 +374,7 @@ function buyOrEquip(id){
     if (coins < it.price){ showMsg('NOT ENOUGH COINS'); tone(200, 120, 0.15, 'square', 0.05); return; }
     coins -= it.price; saveCoins();
     owned.push(id);
+    stats.purchases++; saveStats(); checkAchievements();
     tone(660, 990, 0.12, 'triangle', 0.07);
   }
   equipped[it.tab] = id;   // buying also equips
@@ -401,6 +402,7 @@ storeItems.addEventListener('click', e => {
    ===================================================================== */
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
+let paused = false;   // true while the game is paused
 let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer;
 
 function reset(){
@@ -499,17 +501,20 @@ function drawParticles(){
    7. GAME ACTIONS: flip, die, collision
    ===================================================================== */
 
-   const pauseBtn = document.getElementById('pauseBtn');
-   function setPaused(v){ paused = v; }
-   pauseBtn.addEventListener('pointerdown', e => { e.stopPropagation(); if (state === 'play') setPaused(!paused); });
-   documend.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') setPaused(true); });
+const pauseBtn = document.getElementById('pauseBtn');
+function setPaused(v){ paused = v; }
+pauseBtn.addEventListener('pointerdown', e => e.stopPropagation());
+pauseBtn.addEventListener('click', e => { e.stopPropagation(); if (state === 'play') setPaused(!paused); });
+document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') setPaused(true); });
 
 function flip(){
+  if (paused){ setPaused(false); return; }   // any tap or key resumes
   if (state === 'ready'){ state = 'play'; }
   else if (state === 'over'){
     if (performance.now() - deadAt > 450){ reset(); state = 'ready'; }
     return;
   }
+  stats.flips++; saveStats(); checkAchievements();
   dir = -dir;
   rings.push({x:FOX_X, y:y, r:FOX_RADIUS, a:1});
   tone(dir > 0 ? 330 : 520, dir > 0 ? 520 : 330, 0.09, 'square', 0.05);
@@ -524,6 +529,7 @@ function die(){
     best = score;
     try { localStorage.setItem('terrabird-best', best); } catch(e){}
   }
+  stats.runs++; saveStats(); checkAchievements();
 }
 
 // True if the fox overlaps pipe p
@@ -538,6 +544,7 @@ function hit(p){
    ===================================================================== */
 
 function update(dt){
+  if (paused) return;   // frozen while paused
   // Effects keep running in every state
   for (const r of rings){ r.r += 90*dt; r.a -= 3*dt; }
   rings = rings.filter(r => r.a > 0);
@@ -571,6 +578,7 @@ function update(dt){
       score++;
       coins += COIN_PER_PIPE;
       saveCoins();
+      stats.totalPipes++; saveStats(); checkAchievements();
       tone(660, 990, 0.12, 'triangle', 0.07);
     }
     if (hit(p)){ die(); return; }
@@ -654,12 +662,12 @@ function mixColor(a, b, t){
 function computeSky(hour){
   let i = 0;
   while (i < SKY_SCHEDULE.length - 2 && hour >= SKY_SCHEDULE[i+1][0]) i++;
-  const h0 = SKY_SCHEDULE[1][0], h1 = SKY_SCHEDULE[i+1][0];
+  const h0 = SKY_SCHEDULE[i][0], h1 = SKY_SCHEDULE[i+1][0];
   const a = SKY_PALETTES[SKY_SCHEDULE[i][1]], b = SKY_PALETTES[SKY_SCHEDULE[i+1][1]];
   const t = Math.min(1, Math.max(0, (hour - h0) / (h1 - h0)));
   return {sky: a.sky.map((c,k) => mixColor(c, b.sky[k], t)), cloud: mixColor(a.cloud, b.cloud, t), stars: a.stars + (b.stars - a.stars)*t};
 }
-// The player's loca time. 
+// The player's local time. For testing, add #18 (an hour) to the page address.
 function currentHour(){
   const forced = typeof location !== 'undefined' ? parseFloat(location.hash.slice(1)) : NaN;
   if (!isNaN(forced)) return forced % 24;
@@ -679,20 +687,26 @@ window.addEventListener('hashchange', refreshSky);
 function draw(){
   const showStoreBtn = state === 'ready' && !storeOpen;   // icon only on the title screen
   if (storeBtn.hidden === showStoreBtn) storeBtn.hidden = !showStoreBtn;
+  const showPause = state === 'play';   // pause button only while playing
+  if (pauseBtn.hidden === showPause) pauseBtn.hidden = !showPause;
   ctx.save();
   if (shake > 0) ctx.translate((Math.random()-0.5)*8, (Math.random()-0.5)*8);
 
   // Sky
-  const bandH = Math.ceil(H / SKY_BANDS.length);
-  for (let i = 0; i < SKY_BANDS.length; i++){
-    ctx.fillStyle = SKY_BANDS[i];
+  const bandH = Math.ceil(H / skyNow.sky.length);
+  for (let i = 0; i < skyNow.sky.length; i++){
+    ctx.fillStyle = skyNow.sky[i];
     ctx.fillRect(-10, i*bandH, W+20, bandH+1);
   }
-  ctx.fillStyle = '#ffffff';
-  for (const s of STARS) ctx.fillRect(s[0], s[1], 3, 3);
+  if (skyNow.stars > 0.01){
+    ctx.globalAlpha = skyNow.stars;
+    ctx.fillStyle = '#ffffff';
+    for (const s of STARS) ctx.fillRect(s[0], s[1], 3, 3);
+    ctx.globalAlpha = 1;
+  }
 
   // Drifting clouds
-  ctx.fillStyle = CLOUD_COLOR;
+  ctx.fillStyle = skyNow.cloud;
   for (let i = 0; i < 3; i++){
     const cx = Math.round(((i*170 - (performance.now()/90)*(1+i*0.3)) % (W+160) + W+160) % (W+160) - 80);
     const cy = 300 + i*110;
@@ -760,7 +774,7 @@ function draw(){
    ===================================================================== */
 
 window.addEventListener('pointerdown', e => {
-  if (e.target === muteBtn || e.target.closest('#storeBtn, #store')) return;
+  if (e.target.closest('#mute, #pauseBtn, #storeBtn, #store')) return;
   e.preventDefault();
   try { window.focus(); cv.focus(); } catch(x){}
   flip();
