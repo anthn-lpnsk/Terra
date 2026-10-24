@@ -18,8 +18,11 @@ body{background:var(--bg);color:var(--ink);display:flex;align-items:center;justi
 #wrap{position:relative}
 canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d2433;box-shadow:6px 6px 0 #0006}
 
-#mute{position:absolute;top:12px;right:12px;width:36px;height:36px;border:3px solid #1d2433;background:var(--btn);color:var(--ink);font:14px "Press Start 2P",monospace;cursor:pointer}
-#mute:focus-visible{outline:3px solid #ffd23f}
+#mute,#pauseBtn{position:absolute;top:12px;width:38px;height:38px;padding:5px;background:3c49a6c;border:3px solid #5a3a1e;box-shadow:2px 2px 0 #0006;color:#3b2412;cursor:pointer}
+#mute{right:12px}
+#pauseBtn{left:12px}
+#mute:focus-visible,#pauseBtn:focus-visible{outline:3px solid #ffd23f}
+
 /* Store */
 [hidden]{display:none!important}
 #storeBtn{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:60px;height:60px;padding:4px;background:#c49a6c;border:4px solid #5a3a1e;box-shadow:3px 3px 0 #0006;cursor:pointer}
@@ -46,6 +49,9 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
 <div id="wrap">
   <canvas id="c" tabindex="0" aria-label="Terrabird game"></canvas>
   <button id="mute" aria-label="Toggle sound" title="Sound on/off">♪</button>
+  <button id="pauseBtn" aria-label="Pause" title="Pause (P)" hidden>
+    <svg viewBox="0 0 12 12" width="24" height="24" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><rect x="3" y="2" width="2" height="8"/><rect x="7" y="2" width="2" height="8"/></svg>
+  </button>
   <button id="storeBtn" aria-label="Open store" title="Store" hidden>
     <svg viewBox="0 0 16 16" width="44" height="44" shape-rendering="crispEdges" aria-hidden="true">
       <rect x="1" y="2" width="14" height="4" fill="#d9382e"/>
@@ -62,6 +68,7 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
       <div class="tabs">
         <button data-tab="skins">SKINS</button>
         <button data-tab="trails">TRAILS</button>
+        <button data-tab="awards">AWARDS</button>
         <button data-tab="soon">SOON</button>
       </div>
       <div id="storeMsg"></div>
@@ -128,6 +135,28 @@ const TRAIL_INTERVAL = 0.02;  // seconds between trail particles (lower = denser
 const CONFETTI_COLORS = ['#e8483c','#ffd23f','#7be0a4','#5ec8f2','#f08ac8'];
 const RAINBOW_COLORS  = ['#e8483c','#f08a2e','#ffd23f','#7be0a4','#5ec8f2','#a07be8'];
 
+// Achievements. stat: 'score' (one run) or a lifetime count (totalPipes, flips, runs, purchases)
+const ACHIEVEMENTS = [
+  {id:'a-score1', name:'FIRST FLIGHT', desc:'SCORE 1 IN A RUN', stat:'score', goal:1,   reward:2},
+  {id:'a-score10', name:'DOUBLE DIGITS', desc:'SCORE 10 IN A RUN', stat:'score', goal:10,  reward:5},
+  {id:'a-score25', name: 'HIGH FLYER', desc:'SCORE 25 IN A RUN', stat:'score', goal:25, reward:15},
+  {id:'a-score50', name: 'SKY MASTER', desc:'SCORE 50 IN A RUN', stat: 'score', goal:50, reward:40},
+  {id:'a-pipes100', name: 'PILLAR PASSER', desc:'PASS 100 PILLARS', stat:'totalPipes', goal:100, reward:50},
+  {id:'a-flips200', name:'FLIP FLOPPA', desc:'FLIP GRAVITY 200X', stat:'flips', goal:200, reward: 20},
+  {id:'a-runs100', name:'DEDICATED', desc:'CRASH 100 TIMES', stat:'runs', goal:100, reward:10},
+  {id: 'a-buy1', name:'FIRST PURCHASE', desc:'BUY AN ITEM', stat:'purchases', goal:1, reward:5}
+];
+
+// Sky by the time of day. Sky = 6 bands (top to bottom), cloud = cloud color, stars = star visibility 0-1 
+const SKY_PALETTES = {
+  night: {sky:['#0b0e24','_12183a','#1b2150','#262a63','#343a78','#454a8c'], cloud:'#3a3f78', stars:1},
+  dawn: {sky:['#2b3470','#51508f','#8a6a9e','#d78fa0','#f2b28c','#f8d29a'], cloud:'#a889b8', stars:0.4},
+   day:    {sky:['#3b97e0','#58abe9','#75bdef','#92cff4','#b0dff8','#cdeefb'], cloud:'#ffffff', stars:0},
+  sunset: {sky:['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'], cloud:'#6a5aa8', stars:0.6}
+};
+//[hour of day 0-24, palette].The sky blends smoothly between neighbors.
+const SKY_SCHEDULE = [[0,'night'],[5,'night'],[6.5,'dawn'],[8,'day'],[17,'day'],[18.5,'sunset'],[20,5,'night'],[24,'night']];
+
 // Colors
 const SKY_BANDS = ['#1b1f4b','#2b2f6b','#4a3a85','#8a4a8c','#d9737a','#f0a070'];
 const CLOUD_COLOR = '#6a5aa8';
@@ -190,7 +219,14 @@ let muted = false;
 try { muted = localStorage.getItem('terrabird-mute') === '1'; } catch(e){}
 
 const muteBtn = document.getElementById('mute');
-function paintMute(){ muteBtn.textContent = muted ? '✕' : '♪'; }
+function paintMute(){
+  const cross = [[7,4],[8,5],[9,6],[10,7],[10,4],[9,5],[8,6],[7,7]]
+  .map(p => '<rect x="' + p[0] + '"y="' + p[1] + '"width="1" height="1"/>').join('');
+  const waves = '<rect x="7" y="4" width="1" height="4"/><rect x="9" y="3" width="1" height="6"/>';
+  muteBtn.innerHTML = 'svg viewBox="0 0 12 12" width="24" height"24" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">'+
+    '<rect x="1" y="4" width="2" height+"4"/><rect x="3" y="3" width="1" height="6"/><rect x="4" y+"2" width="1" height="8"/>' +
+    (muted ? cross : waves) + '</svg>';
+}
 paintMute();
 
 muteBtn.addEventListener('pointerdown', e => e.stopPropagation());
@@ -221,6 +257,49 @@ function tone(f1, f2, d, type, vol){
     osc.connect(gain); gain.connect(audio.destination);
     osc.start(t); osc.stop(t + d);
   } catch(e){}
+}
+
+/* =====================================================================
+   4a. ACHIEVEMENTS: goals, coin rewards, pop-ups
+   ===================================================================== */
+
+   let stats = {totalPipes:0, flips:0, runs:0, purchases:0}; // lifetime counts
+   try { const q = JSON.parse(localStorage.getItem('terrabird-stats')); if (q && typeof q === 'object') Object.assign(stats, q); } catch(e){}
+   let unlocked = [];
+   try { const u = JSON.parse(localStorage.getItem('terrabid-ach')); if (Array.isArray(u)) unlocked = u; } catch(e){}
+
+   function saveStats(){
+    try {
+      localStorage.setItem('terrabird-stats', JSON.stringify(stats));
+      localStorage.setItem('terrabird-ach', JSON.stringify(unlocked));
+    } catch(e){}
+  }
+
+  function achValue(){ return a.stat === 'score' ? score : (stats[a.stat] || 0); }
+
+  const toasts = []; // achievement pop-ups waiting to show
+
+//Unlocks anything newly reached and pays the coin reward
+function checkAchievements(){
+  for (const a of ACHIEVEMENTS){
+    if (unlocked.includes(a.id) || achValue(a) < a.goal) continue;
+    unlocked.push(a.id);
+    coins += a.reward; saveCoins(); saveStats();
+    toasts.push({name:a.name, reward:a.reward, start:0});
+    tone(523, 1046, 0.25, 'triangle', 0.07);
+  }
+}
+
+// Pop-up at the bottom of the screen, one at a time
+function drawToast(){
+  if (!toasts.length || storeOpen) return;
+  const t = toasts[0], now = performance.now();
+  if (!t.start) t.start = now;
+  if (now - t.start > 2600){ toasts.shift(); return; }
+  ctx.fillStyle = '#1d2433'; ctx.fillRect(30, 548, W-60, 62);
+  ctx.strokeStyle = '#ffd23f'; ctx.lineWidth = 4; ctx.strokeRect(34, 552, W-68, 54);
+  text('ACHIEVEMENT', W/2, 574, 9, '#ffd23f');
+  text(t.name + ' +' + t.reward, W/2, 596, 10, '#fff');
 }
 
 
@@ -268,6 +347,16 @@ function swatchStyle(it){
 function renderStore(){
   storeCoins.textContent = 'COINS ' + coins;
   for (const b of storeEl.querySelectorAll('.tabs button')) b.classList.toggle('on', b.dataset.tab === storeTab);
+  if (storeTab === 'awards'){
+      storeItems.innerHTML = ACHIEVEMENTS.map(a => {
+        const done = unlocked.includes(a.id);
+        const v = a.stat === 'score' ? best : (stats[a.stat] || 0);
+        const right = done ? 'DONE' : Math.min(v, a.goal) + '/' + a.goal + '<br>+' + a.reward;
+        return '<div class="item"><div class="sw" style="background:' + (done ? '#7be0a4' : '#8a5a2e') + '"></div>' +
+               '<div class="nm">' + a.name + '<br><span class="d">' + a.desc + '</span></div><div>' + right + '</div></div>';
+      }).join('');
+      return;
+  }
   if (storeTab === 'soon'){ storeItems.innerHTML = '<div class="soon">COMING SOON</div>'; return; }
   storeItems.innerHTML = ITEMS.filter(i => i.tab === storeTab).map(i => {
     const has = owned.includes(i.id), on = equipped[i.tab] === i.id;
@@ -410,6 +499,11 @@ function drawParticles(){
    7. GAME ACTIONS: flip, die, collision
    ===================================================================== */
 
+   const pauseBtn = document.getElementById('pauseBtn');
+   function setPaused(v){ paused = v; }
+   pauseBtn.addEventListener('pointerdown', e => { e.stopPropagation(); if (state === 'play') setPaused(!paused); });
+   documend.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') setPaused(true); });
+
 function flip(){
   if (state === 'ready'){ state = 'play'; }
   else if (state === 'over'){
@@ -551,6 +645,32 @@ function text(s, x, yy, size, color, align){
 }
 try { document.fonts.load('16px "Press Start 2P"'); } catch(e){}
 
+// --- Time-of-day sky ---
+function hexToRgb(h){ return [1,3,5].map(i => parseInt(h.substr(i,2),16)); }
+function mixColor(a, b, t){
+  const x = hexToRgb(a), y = hexToRgb(b);
+  return 'rgb(' + x.map((v,i) => Math.round(v + (y[i]-v)*t)).join(',') + ')';
+}
+function computeSky(hour){
+  let i = 0;
+  while (i < SKY_SCHEDULE.length - 2 && hour >= SKY_SCHEDULE[i+1][0]) i++;
+  const h0 = SKY_SCHEDULE[1][0], h1 = SKY_SCHEDULE[i+1][0];
+  const a = SKY_PALETTES[SKY_SCHEDULE[i][1]], b = SKY_PALETTES[SKY_SCHEDULE[i+1][1]];
+  const t = Math.min(1, Math.max(0, (hour - h0) / (h1 - h0)));
+  return {sky: a.sky.map((c,k) => mixColor(c, b.sky[k], t)), cloud: mixColor(a.cloud, b.cloud, t), stars: a.stars + (b.stars - a.stars)*t};
+}
+// The player's loca time. 
+function currentHour(){
+  const forced = typeof location !== 'undefined' ? parseFloat(location.hash.slice(1)) : NaN;
+  if (!isNaN(forced)) return forced % 24;
+  const d = new Date();
+  return d.getHours() + d.getMinutes()/60;
+}
+let skyNow = computeSky(currentHour());
+function refreshSky(){ skyNow = computeSky(currentHour()); }
+setInterval(refreshSky, 30000);
+window.addEventListener('hashchange', refreshSky);
+
 
 /* =====================================================================
    10. DRAW: paints one frame (back to front)
@@ -623,6 +743,13 @@ function draw(){
     drawCoin(W/2 - 36, 360);
     text(coins, W/2 - 16, 372, 12, '#ffd23f', 'left');
   }
+  if (paused){
+    ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, W, H);
+    text('PAUSED', W/2, 300, 26, '#ffd23f');
+    text('TAP OR PRESS ANY KEY', W/2, 346, 9, '#fff');
+    text('TO RESUME', W/2, 366, 9, '#fff');
+  }
+  drawToast();
 
   ctx.restore();
 }
@@ -644,6 +771,7 @@ function onKey(e){
   if (e._h) return;
   e._h = 1;
   if (storeOpen){ if (e.code === 'Escape') closeStore(); return; }   // game keys off while store is open
+  if (e.code === 'KeyP' || e.code === 'Escape'){ if (state === 'play') setPaused(!paused); return; }
   if (['Space','ArrowUp','ArrowDown','Enter'].includes(e.code)){
     e.preventDefault();
     if (!e.repeat) flip();
