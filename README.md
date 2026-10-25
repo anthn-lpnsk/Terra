@@ -15,3 +15,10 @@ Functions:
 - multiple dimensions
     - you can enter one of 2 (soon to be 3) dimensions by crashing into specific pillars. You'll know when you see them. 
     - you stand to win skins and coins, don't lose this chance. 
+- Backgrounds depending on the time of day.
+
+Note on AI use: I give this a 9/10 on AI use. I didn't just ask claude to build it, but i doubt there was a single paragraph I didn't as help for from AI. 
+
+Controls: 
+P or esc to pause
+space, click, or arrow buttons (up and down) to flip gravity
