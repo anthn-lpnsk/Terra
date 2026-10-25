@@ -132,7 +132,6 @@ const ITEMS = [
 
 // Secret dimensions. Some pipes are portals: crash into one to enter, or fly through its gap to stay home.
 const PORTAL_CHANCE   = 1/50;  // chance a new pipe is a portal to ANY dimension (split evenly among the ready ones)
-const DIMENSION_COIN_MULT = 2;   // coins per pipe are multiplied inside a dimension
 const DIMENSION_PIPES = 50;    // pipes to survive in a dimension to return home
 const DIMENSIONS = {
   backrooms: {
@@ -144,7 +143,8 @@ const DIMENSIONS = {
     flicker:[0.04, 0.2, 0.4, 0.6, 1],
     dark:[0, 0.12, 0.25, 0.4, 0.7],
     monsterFrom:35,                 // the monster appears at this pipe
-    monsterDelay:[0.75, 0.38]       // seconds behind you at pipe 35 and at the exit (smaller = closer)
+    monsterDelay:[0.75, 0.38],      // seconds behind you at pipe 35 and at the exit (smaller = closer)
+    pipeCoins:[1, 2]                // coins per pipe, repeating: 1, 2, 1, 2...
   },
   mario: {
     name:'MARIO WORLD', ready:true,
@@ -152,7 +152,8 @@ const DIMENSIONS = {
     wall:{body:'#00a800', light:'#80f060', dark:'#006800', outline:'#000000'},   // pipes inside
     sky:'#5c94fc', cloud:'#ffffff', cloudShade:'#bcd8fc',
     hill:'#00a800', hillDark:'#006800',
-    brick:'#c84c0c', brickLight:'#fc9838', brickLine:'#000000'
+    brick:'#c84c0c', brickLight:'#fc9838', brickLine:'#000000',
+    pipeCoins:[1]                   // 1 coin per pipe, no bonus
   },
   reverse: {name:'REVERSE WORLD', ready:false}    // not built yet
 };
@@ -160,7 +161,7 @@ const DIMENSIONS = {
 // Mario world
 const MARIO_GROUND      = 32;   // brick floor height (the fox crashes into it, pipes stand on it)
 const COIN_R            = 10;   // coin size, also used for pickup
-const MARIO_COIN_CHANCE = 0.9;  // chance a pair of pipes gets a coin
+const MARIO_COIN_CHANCE = [5,10];  // chance a pair of pipes gets a coin
 const COIN_STEP         = 4;    // px between the heights the placement code tests
 // best / worst = slack ranges (see the explanation). safe:true = timing built so ANY start spot works.
 // weight = how often; ramp = weight change per pipe survived in the dimension (harder coins later)
@@ -452,7 +453,18 @@ storeItems.addEventListener('click', e => {
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
 let paused = false;   // true while the game is paused
-let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail, coinPops;
+let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail, coinPops, coinWait;
+//Wait (in pillars) until the next Mario coin
+function rollCoinWait(){
+  return MARIO_COIN_CHANCE[0] + Math.floor(Math.random() * (MARIO_COIN_CHANCE[1] - MARIO_COIN_CHANCE[0] + 1));
+}
+
+// Coins for the pipe just passed. Inside a dimension it follows that dimension's pattern.
+function pipeReward(){
+  if (!dimension) return COIN_PER_PIPE;
+  const pattern = DIMENSIONS[dimension].pipeCoins || [1];
+  return COIN_PER_PIPE * pattern[dimCount % pattern.length];
+}
 
 function reset(){
   y = H/2;          // fox height
@@ -504,7 +516,12 @@ function spawn(){
   const portal = dimension ? null : (forceId || (Math.random() < PORTAL_CHANCE ? pickDimension() : null));
   const pipe = {x:nextX, c:center, g:gap, scored:false, portal:portal, coin:null};
   pipes.push(pipe);
-  if (dimension === 'mario' && pipes.length > 1) pipe.coin = makeCoin(pipes[pipes.length-2], pipe);
+if (dimension === 'mario' && pipes.length > 1){
+  if (--coinWait <=0){
+    pipe.coin = makeCoin(pipes[pipes.length-2], pipe);
+    if (pipe.coin) coinWait = rollCoinWait(); 
+    }
+  }
   nextX += PIPE_SPACING;
 }
 
@@ -596,6 +613,9 @@ function restartPipes(){
 
 function enterDimension(id){
   dimension = id; dimCount = testStart();
+  coinWait = rollCoinWait();
+  const floor = floorY(); y = Math.max(FOX_RADIUS + 30, Math.min(floor - FOX_RADIUS - 30, y));
+  dir = y < floor / 2 ? 1 : -1;
   restartPipes();
   flash = 1; banner = {text:DIMENSIONS[id].name, start:0};
   stats.dimEntered++;
@@ -653,31 +673,46 @@ function distToRange(v, lo, hi){ return v < lo ? lo - v : v > hi ? v - hi : 0; }
 function farFromRange(v, lo, hi){ return Math.max(Math.abs(v - lo), Math.abs(v - hi)); }
 function floorY(){ return dimension === 'mario' ? H - MARIO_GROUND : H; }
 
-// a = pipe the fox just passed, b = the next pipe. Returns a coin stored on b, or null.
-function makeCoin(a, b){
-  if (Math.random() > MARIO_COIN_CHANCE) return null;
-  const R = FOX_RADIUS, PICK = FOX_RADIUS + COIN_R;     // fox grabs a coin within PICK px vertically
-  const k = speedFor(score + 3) / FOX_SPEED;            // scroll px per px of fox travel (speed when this pair arrives)
-  const F = PIPE_SPACING - PIPE_W - 2*R;                // scroll distance between "passed a" and "b arrives"
-  const L = F / k;                                      // how far the fox can fly in that time
-  const a0 = a.c - a.g/2 + R, a1 = a.c + a.g/2 - R;     // safe heights inside gap a
-  const b0 = b.c - b.g/2 + R, b1 = b.c + b.g/2 - R;     // safe heights inside gap b
-  const yMin = R + 4, yMax = floorY() - R - 4;
+// Shortest fox travel from start height y0, to a spot within P of the coin height cy, then into gap B
+function legs(y0, cy, b0, b1, P){
+  const nb = Math.min(b1, Math.max(b0, y0));   // closest height in gap B to the start
+  let r = null;
+  for (const p of [cy - P, cy + P, Math.min(cy + P, Math.max(cy - P, nb))]){
+    const l1 = Math.abs(y0 - p), l2 = distToRange(p, b0, b1);
+    if (!r || l1 + l2 < r.l1 + r.l2) r = {l1:l1, l2:l2};
+  }
+  return r;
+}
 
-  // 1. Test every height; keep the ones that fit a tier
+function makeCoin(a, b){
+  const R = FOX_RADIUS, PICK = FOX_RADIUS + COIN_R;
+  const k = speedFor(score + 3) / FOX_SPEED;
+  const F = PIPE_SPACING - PIPE_W - 2*R;
+  const L = F / k;
+  const a0 = a.c - a.g/2 + R, a1 = a.c + a.g/2 - R;
+  const b0 = b.c - b.g/2 + R, b1 = b.c + b.g/2 - R;
+  const yMin = R + 4, yMax = floorY() - R - 4;
+  const starts = [];                                   // possible start heights inside gap a
+  for (let s = a0; s < a1; s += 6) starts.push(s);
+  starts.push(a1);
+
   const found = COIN_TIERS.map(() => []);
   for (let cy = yMin; cy <= yMax; cy += COIN_STEP){
-    const dN = Math.max(0, distToRange(cy, a0, a1)  - PICK);   // start gap a from the best spot
-    const dF = Math.max(0, farFromRange(cy, a0, a1) - PICK);   // start gap a from the worst spot
-    const dB = Math.max(0, distToRange(cy, b0, b1)  - PICK);   // land in gap b at the best spot
-    const best = (L - dN - dB) / L, worst = (L - dF - dB) / L;
+    const ls = starts.map(s => legs(s, cy, b0, b1, PICK - 1)), tot = l => l.l1 + l.l2;
+    let bi = 0, wi = 0;                                // best and worst start
+    ls.forEach((l, i) => { if (tot(l) < tot(ls[bi])) bi = i; if (tot(l) > tot(ls[wi])) wi = i; });
+    const bestSlack = (L - tot(ls[bi])) / L, worstSlack = (L - tot(ls[wi])) / L;
     COIN_TIERS.forEach((t, i) => {
-      if (best >= t.best[0] && best <= t.best[1] && worst >= t.worst[0] && worst <= t.worst[1])
-        found[i].push({cy:cy, dA:t.safe ? dF : dN, dB:dB});
+      if (!(bestSlack >= t.best[0] && bestSlack <= t.best[1] && worstSlack >= t.worst[0] && worstSlack <= t.worst[1])) return;
+      const set = t.safe ? ls : [ls[bi]];              // safe tier: one timing that works for every start
+      const lo = Math.max(...set.map(l => k * l.l1)), hi = Math.min(...set.map(l => F - k * l.l2));
+      if (hi < lo) return;
+      const u = (lo + hi) / 2;                         // middle of the timing window
+      if (F + R - u < COIN_R + 8) return;              // would sit inside pipe b's lip
+      found[i].push({cy:cy, u:u});
     });
   }
 
-  // 2. Pick a tier by weight (only tiers that have a valid height)
   let total = 0;
   const wts = COIN_TIERS.map((t, i) => {
     const v = found[i].length ? Math.max(0, t.weight + t.ramp*dimCount) : 0;
@@ -687,11 +722,8 @@ function makeCoin(a, b){
   let r = Math.random()*total, ti = 0;
   for (; ti < wts.length - 1; ti++){ if (r < wts[ti]) break; r -= wts[ti]; }
 
-  // 3. Pick a height, then put the coin in the middle of its timing window
   const c = found[ti][Math.floor(Math.random()*found[ti].length)];
-  const u = F/2 + k*(c.dA - c.dB)/2;                    // scroll distance after passing a
-  const w = Math.max(COIN_R + 8, R + F - u);            // px in front of pipe b
-  return {w:w, y:c.cy, tier:ti, got:false};
+  return {w:Math.max(COIN_R + 8, R + F - c.u), y:c.cy, tier:ti, got:false};
 }
 
 function collectCoins(){
@@ -810,7 +842,7 @@ function update(dt){
     if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
       p.scored = true;
       score++;
-      coins += COIN_PER_PIPE * (dimension ? DIMENSION_COIN_MULT : 1);
+      coins += pipeReward();
       saveCoins();
       stats.totalPipes++; saveStats(); checkAchievements();
       tone(660, 990, 0.12, 'triangle', 0.07);
