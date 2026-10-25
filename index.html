@@ -146,9 +146,29 @@ const DIMENSIONS = {
     monsterFrom:35,                 // the monster appears at this pipe
     monsterDelay:[0.75, 0.38]       // seconds behind you at pipe 35 and at the exit (smaller = closer)
   },
-  mario:   {name:'MARIO WORLD',   ready:false},   // not built yet
+  mario: {
+    name:'MARIO WORLD', ready:true,
+    pipe:{body:'#1faa1f', light:'#6cf05c', dark:'#0e6e0e', outline:'#1d2433'},   // portal pipe at home
+    wall:{body:'#00a800', light:'#80f060', dark:'#006800', outline:'#000000'},   // pipes inside
+    sky:'#5c94fc', cloud:'#ffffff', cloudShade:'#bcd8fc',
+    hill:'#00a800', hillDark:'#006800',
+    brick:'#c84c0c', brickLight:'#fc9838', brickLine:'#000000'
+  },
   reverse: {name:'REVERSE WORLD', ready:false}    // not built yet
 };
+
+// Mario world
+const MARIO_GROUND      = 32;   // brick floor height (the fox crashes into it, pipes stand on it)
+const COIN_R            = 10;   // coin size, also used for pickup
+const MARIO_COIN_CHANCE = 0.9;  // chance a pair of pipes gets a coin
+const COIN_STEP         = 4;    // px between the heights the placement code tests
+// best / worst = slack ranges (see the explanation). safe:true = timing built so ANY start spot works.
+// weight = how often; ramp = weight change per pipe survived in the dimension (harder coins later)
+const COIN_TIERS = [
+  {name:'easy',   value:1, weight:5, ramp:-0.02, safe:true,  worst:[0.15, 1], best:[0, 1],       color:'#ffd23f', shine:'#fff3b0'},
+  {name:'medium', value:2, weight:3, ramp:0,     safe:false, worst:[-99, 0],  best:[0.25, 1],    color:'#5ec8f2', shine:'#d6f3ff'},
+  {name:'hard',   value:5, weight:1, ramp:0.02,  safe:false, worst:[-99, 1],  best:[0.02, 0.12], color:'#e8483c', shine:'#ffc0b8'}
+];
 
 // Trails
 const TRAIL_INTERVAL = 0.02;  // seconds between trail particles (lower = denser)
@@ -169,7 +189,9 @@ const ACHIEVEMENTS = [
   {id:'a-dimall',   name:'MULTIVERSE',     desc:'ENTER EVERY DIMENSION', stat:'dimsSeen',   goal:Object.keys(DIMENSIONS).length, reward:100},
   {id:'a-dim10',    name:'DIMENSION HOPPER', desc:'ENTER DIMENSIONS 10X', stat:'dimEntered', goal:10,  reward:30},
   {id:'a-dimdie',   name:'LOST FOR GOOD',  desc:'DIE IN A DIMENSION',    stat:'dimDeaths',  goal:1,   reward:10},
-  {id:'a-home10',   name:'HOMEWARD BOUND', desc:'RETURN HOME 10X',       stat:'dimReturns', goal:10,  reward:75}
+  {id:'a-home10',   name:'HOMEWARD BOUND', desc:'RETURN HOME 10X',       stat:'dimReturns', goal:10,  reward:75},
+  {id:'a-mcoin25', name:'COIN COLLECTOR', desc:'GRAB 25 MARIO COINS', stat:'marioCoins', goal:25, reward:20},
+  {id:'a-redcoin', name:'RED HOT',        desc:'GRAB 5 RED COINS',    stat:'hardCoins',  goal:5,  reward:40}
 ];
 
 // Sky by time of day. sky = 6 bands (top to bottom), cloud = cloud color, stars = star visibility 0-1
@@ -287,7 +309,7 @@ function tone(f1, f2, d, type, vol){
    4a. ACHIEVEMENTS: goals, coin rewards, pop-ups
    ===================================================================== */
 
-let stats = {totalPipes:0, flips:0, runs:0, purchases:0, dimEntered:0, dimsSeen:[], dimDeaths:0, dimReturns:0};   // lifetime counts
+let stats = {totalPipes:0, flips:0, runs:0, purchases:0, dimEntered:0, dimsSeen:[], dimDeaths:0, dimReturns:0, marioCoins:0, hardCoins:0};   // lifetime counts
 try { const q = JSON.parse(localStorage.getItem('terrabird-stats')); if (q && typeof q === 'object') Object.assign(stats, q); } catch(e){}
 let unlocked = [];                                           // ids of finished achievements
 try { const u = JSON.parse(localStorage.getItem('terrabird-ach')); if (Array.isArray(u)) unlocked = u; } catch(e){}
@@ -430,7 +452,7 @@ storeItems.addEventListener('click', e => {
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
 let paused = false;   // true while the game is paused
-let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail;
+let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail, coinPops;
 
 function reset(){
   y = H/2;          // fox height
@@ -451,6 +473,7 @@ function reset(){
   banner = null;    // title shown after a switch
   scrollX = 0;      // background scroll distance
   trail = [];       // the fox's recent heights (the monster follows this path)
+  coinPops = [];    // "+5" pop-ups
   while (nextX < W + PIPE_SPACING*2) spawn();
 }
 
@@ -465,7 +488,7 @@ function spawn(){
   const gap = gapSize();
   const timeBetween = PIPE_SPACING / speed;
   const maxShift = FOX_SPEED * timeBetween * GAP_REACH;  // farthest the next gap may move
-  const lo = GAP_MARGIN + gap/2, hi = H - GAP_MARGIN - gap/2;
+  const lo = GAP_MARGIN + gap/2, hi = floorY() - GAP_MARGIN - gap/2;
 
   let shift = (Math.random()*2 - 1) * maxShift;
   if (score >= EXTREME_FROM_SCORE && Math.random() < EXTREME_CHANCE){
@@ -479,7 +502,9 @@ function spawn(){
   const forced = typeof location !== 'undefined' ? location.hash.slice(1).replace(/\d+$/, '') : '';
   const forceId = (DIMENSIONS[forced] && DIMENSIONS[forced].ready) ? forced : null;
   const portal = dimension ? null : (forceId || (Math.random() < PORTAL_CHANCE ? pickDimension() : null));
-  pipes.push({x:nextX, c:center, g:gap, scored:false, portal:portal});
+  const pipe = {x:nextX, c:center, g:gap, scored:false, portal:portal, coin:null};
+  pipes.push(pipe);
+  if (dimension === 'mario' && pipes.length > 1) pipe.coin = makeCoin(pipes[pipes.length-2], pipe);
   nextX += PIPE_SPACING;
 }
 
@@ -518,6 +543,8 @@ function updateParticles(dt){
     p.life -= dt;
   }
   particles = particles.filter(p => p.life > 0);
+  for (const q of coinPops){ q.x -= scroll*dt; q.y -= 40*dt; q.life -= dt; }
+  coinPops = coinPops.filter(q => q.life > 0);
 }
 
 function drawParticles(){
@@ -530,6 +557,11 @@ function drawParticles(){
     ctx.globalAlpha = a;
     ctx.fillStyle = color;
     ctx.fillRect(Math.round(p.x - size/2), Math.round(p.y - size/2), size, size);
+  }
+  ctx.globalAlpha = 1;
+  for (const q of coinPops){
+    ctx.globalAlpha = Math.min(1, q.life / 0.3);
+    text(q.text, q.x, q.y, 10, q.color);
   }
   ctx.globalAlpha = 1;
 }
@@ -609,6 +641,89 @@ function monsterPos(){
   const delay = monsterDelay();
   const idx = trail.length - 1 - Math.round(delay / STEP);
   return {x: FOX_X - speed * delay, y: trail.length ? trail[Math.max(0, idx)] : y};
+}
+
+
+/* =====================================================================
+   6d. MARIO COINS: placement math, pickup, drawing
+   ===================================================================== */
+
+function speedFor(s){ return Math.min(PIPE_SPEED_MAX, PIPE_SPEED_START + s*PIPE_SPEED_PER_POINT); }
+function distToRange(v, lo, hi){ return v < lo ? lo - v : v > hi ? v - hi : 0; }
+function farFromRange(v, lo, hi){ return Math.max(Math.abs(v - lo), Math.abs(v - hi)); }
+function floorY(){ return dimension === 'mario' ? H - MARIO_GROUND : H; }
+
+// a = pipe the fox just passed, b = the next pipe. Returns a coin stored on b, or null.
+function makeCoin(a, b){
+  if (Math.random() > MARIO_COIN_CHANCE) return null;
+  const R = FOX_RADIUS, PICK = FOX_RADIUS + COIN_R;     // fox grabs a coin within PICK px vertically
+  const k = speedFor(score + 3) / FOX_SPEED;            // scroll px per px of fox travel (speed when this pair arrives)
+  const F = PIPE_SPACING - PIPE_W - 2*R;                // scroll distance between "passed a" and "b arrives"
+  const L = F / k;                                      // how far the fox can fly in that time
+  const a0 = a.c - a.g/2 + R, a1 = a.c + a.g/2 - R;     // safe heights inside gap a
+  const b0 = b.c - b.g/2 + R, b1 = b.c + b.g/2 - R;     // safe heights inside gap b
+  const yMin = R + 4, yMax = floorY() - R - 4;
+
+  // 1. Test every height; keep the ones that fit a tier
+  const found = COIN_TIERS.map(() => []);
+  for (let cy = yMin; cy <= yMax; cy += COIN_STEP){
+    const dN = Math.max(0, distToRange(cy, a0, a1)  - PICK);   // start gap a from the best spot
+    const dF = Math.max(0, farFromRange(cy, a0, a1) - PICK);   // start gap a from the worst spot
+    const dB = Math.max(0, distToRange(cy, b0, b1)  - PICK);   // land in gap b at the best spot
+    const best = (L - dN - dB) / L, worst = (L - dF - dB) / L;
+    COIN_TIERS.forEach((t, i) => {
+      if (best >= t.best[0] && best <= t.best[1] && worst >= t.worst[0] && worst <= t.worst[1])
+        found[i].push({cy:cy, dA:t.safe ? dF : dN, dB:dB});
+    });
+  }
+
+  // 2. Pick a tier by weight (only tiers that have a valid height)
+  let total = 0;
+  const wts = COIN_TIERS.map((t, i) => {
+    const v = found[i].length ? Math.max(0, t.weight + t.ramp*dimCount) : 0;
+    total += v; return v;
+  });
+  if (total <= 0) return null;
+  let r = Math.random()*total, ti = 0;
+  for (; ti < wts.length - 1; ti++){ if (r < wts[ti]) break; r -= wts[ti]; }
+
+  // 3. Pick a height, then put the coin in the middle of its timing window
+  const c = found[ti][Math.floor(Math.random()*found[ti].length)];
+  const u = F/2 + k*(c.dA - c.dB)/2;                    // scroll distance after passing a
+  const w = Math.max(COIN_R + 8, R + F - u);            // px in front of pipe b
+  return {w:w, y:c.cy, tier:ti, got:false};
+}
+
+function collectCoins(){
+  for (const p of pipes){
+    const c = p.coin;
+    if (!c || c.got) continue;
+    const cx = p.x - c.w;
+    if (Math.abs(cx - FOX_X) < FOX_RADIUS + COIN_R && Math.abs(c.y - y) < FOX_RADIUS + COIN_R){
+      const t = COIN_TIERS[c.tier];
+      c.got = true;
+      coins += t.value; saveCoins();
+      stats.marioCoins++; if (t.name === 'hard') stats.hardCoins++;
+      saveStats(); checkAchievements();
+      coinPops.push({x:cx, y:c.y, text:'+' + t.value, color:t.color, life:0.8});
+      tone(988, 988, 0.07, 'square', 0.06);
+      setTimeout(() => tone(1319, 1319, 0.3, 'square', 0.06), 70);
+    }
+  }
+}
+
+function drawMarioCoins(){
+  const hw = [7, 5, 2, 5][Math.floor(performance.now() / 110) % 4];   // coin "spins"
+  for (const p of pipes){
+    const c = p.coin;
+    if (!c || c.got) continue;
+    const cx = Math.round(p.x - c.w), cy = Math.round(c.y);
+    if (cx < -20 || cx > W + 20) continue;
+    const t = COIN_TIERS[c.tier];
+    ctx.fillStyle = '#000';  ctx.fillRect(cx - hw - 2, cy - 12, hw*2 + 4, 24);
+    ctx.fillStyle = t.color; ctx.fillRect(cx - hw, cy - 10, hw*2, 20);
+    if (hw > 3){ ctx.fillStyle = t.shine; ctx.fillRect(cx - hw + 2, cy - 8, 2, 14); }
+  }
 }
 
 
@@ -712,9 +827,12 @@ function update(dt){
     }
   }
 
+  if (dimension === 'mario') collectCoins();
+
   // Ceiling and floor
-  if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > H){
-    y = Math.max(FOX_RADIUS, Math.min(H - FOX_RADIUS, y));
+  const floor = floorY();
+  if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > floor){
+    y = Math.max(FOX_RADIUS, Math.min(floor - FOX_RADIUS, y));
     die();
   }
 }
@@ -754,6 +872,7 @@ function drawPipe(p){
   const x = Math.round(p.x);
   const C = pipeColors(p);
   const walls = dimension === 'backrooms';   // striped wallpaper slabs instead of pillars
+  const mario = dimension === 'mario';
 
   function body(yy, h){
     ctx.fillStyle = C.body;  ctx.fillRect(x, yy, PIPE_W, h);
@@ -767,8 +886,14 @@ function drawPipe(p){
     ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x, yy, PIPE_W, h);
   }
   function cap(yy){
-    ctx.fillStyle = C.light; ctx.fillRect(x-6, yy, PIPE_W+12, 18);
-    ctx.fillStyle = C.dark;  ctx.fillRect(x-6, yy+12, PIPE_W+12, 6);
+    if (mario){   // same green as the body, light stripe left, dark stripe right
+      ctx.fillStyle = C.body;  ctx.fillRect(x-6, yy, PIPE_W+12, 18);
+      ctx.fillStyle = C.light; ctx.fillRect(x+6, yy, 6, 18);
+      ctx.fillStyle = C.dark;  ctx.fillRect(x+PIPE_W-10, yy, 16, 18);
+    } else {
+      ctx.fillStyle = C.light; ctx.fillRect(x-6, yy, PIPE_W+12, 18);
+      ctx.fillStyle = C.dark;  ctx.fillRect(x-6, yy+12, PIPE_W+12, 6);
+    }
     ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x-6, yy, PIPE_W+12, 18);
   }
   function trim(yy){   // wall edge trim
@@ -802,6 +927,54 @@ function drawDimension(){
       const on = r >= d.flicker[lvl];
       ctx.fillStyle = on ? d.light : d.ceiling;
       ctx.fillRect(k*120 - lo + 30, 3, 50, 6);
+    }
+  }
+  if (dimension === 'mario') drawMarioBackground(d);
+}
+
+function drawMarioBackground(d){
+  const base = H - MARIO_GROUND;
+  ctx.fillStyle = d.sky; ctx.fillRect(0, 0, W, H);
+
+  const span = W + 120, co = scrollX * 0.15;                       // clouds drift slowly
+  for (const c of [[20,110],[190,60],[300,200]]){
+    const cx = Math.round(((c[0] - co) % span + span) % span) - 64;
+    marioCloud(cx, c[1], d);
+  }
+  const P = 540, ho = (scrollX * 0.35) % P;                        // hills scroll a bit faster
+  for (const h of [[10,170,96],[300,100,56]])
+    for (let rep = -1; rep <= 1; rep++) marioHill(h[0] - ho + rep*P, base, h[1], h[2], d);
+}
+
+function marioCloud(x, yy, d){
+  const rows = [[2,2],[1,5],[0,8],[1,6]];   // [first block, blocks wide] per 8px row
+  rows.forEach((r, i) => {
+    ctx.fillStyle = i === 3 ? d.cloudShade : d.cloud;
+    ctx.fillRect(x + r[0]*8, yy + i*8, r[1]*8, 8);
+  });
+}
+
+function marioHill(x, base, w, h, d){
+  const rows = Math.floor(h / 8);
+  for (let r = 0; r < rows; r++){
+    const inset = Math.round(r * (w/2 - 8) / rows);
+    const rx = Math.round(x) + inset, rw = w - inset*2, ry = base - (r+1)*8;
+    ctx.fillStyle = d.hill;     ctx.fillRect(rx, ry, rw, 8);
+    ctx.fillStyle = d.hillDark; ctx.fillRect(rx, ry, 4, 8); ctx.fillRect(rx + rw - 4, ry, 4, 8);
+  }
+  ctx.fillStyle = '#003800';                                       // the little eyes
+  const ex = Math.round(x + w/2), ey = base - Math.round(h*0.45);
+  ctx.fillRect(ex - 10, ey, 4, 12); ctx.fillRect(ex + 6, ey, 4, 12);
+}
+
+function drawMarioGround(){   // drawn AFTER the pipes so they look planted in it
+  const d = DIMENSIONS.mario, gy = H - MARIO_GROUND, off = Math.floor(scrollX) % 16;
+  for (let r = 0; r < MARIO_GROUND/16; r++){
+    for (let tx = -off; tx < W; tx += 16){
+      const ty = gy + r*16;
+      ctx.fillStyle = d.brick;      ctx.fillRect(tx, ty, 16, 16);
+      ctx.fillStyle = d.brickLight; ctx.fillRect(tx, ty, 16, 2); ctx.fillRect(tx, ty, 2, 16);
+      ctx.fillStyle = d.brickLine;  ctx.fillRect(tx + 14, ty, 2, 16); ctx.fillRect(tx, ty + 14, 16, 2);
     }
   }
 }
@@ -923,14 +1096,17 @@ function draw(){
 
   // Pipes
   for (const p of pipes) drawPipe(p);
+  if (dimension === 'mario'){ drawMarioGround(); drawMarioCoins(); }
 
   // Ceiling and floor bars
+  if (dimension !== 'mario'){
   const room = dimension === 'backrooms' ? DIMENSIONS.backrooms : null;
   ctx.fillStyle = room ? room.ceiling : '#1d2433'; ctx.fillRect(0, 0, W, 8);
   ctx.fillStyle = room ? room.carpet : '#1d2433';  ctx.fillRect(0, H-8, W, 8);
   if (!room){
     ctx.fillStyle = '#3a4466';
     for (let i = 0; i < W; i += 16){ ctx.fillRect(i, 2, 8, 4); ctx.fillRect(i+8, H-6, 8, 4); }
+  }
   }
 
   // Flip animation squares
