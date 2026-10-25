@@ -130,6 +130,26 @@ const ITEMS = [
   {id:'trail-rainbow',  tab:'trails', name:'RAINBOW',  price:50}
 ];
 
+// Secret dimensions. Some pipes are portals: crash into one to enter, or fly through its gap to stay home.
+const PORTAL_CHANCE   = 1/50;  // chance a new pipe is a portal to ANY dimension (split evenly among the ready ones)
+const DIMENSION_COIN_MULT = 2;   // coins per pipe are multiplied inside a dimension
+const DIMENSION_PIPES = 50;    // pipes to survive in a dimension to return home
+const DIMENSIONS = {
+  backrooms: {
+    name:'THE BACKROOMS', ready:true,
+    pipe:{body:'#1f4e4b', light:'#2a6662', dark:'#143533', outline:'#0a0f14'},   // portal pipe at home: a darker shade
+    wall:{body:'#c8b560', light:'#b39f4a', dark:'#7a6b2a', outline:'#4a4118'},   // walls inside (replace pipes)
+    wallpaper:'#bfac55', stripe:'#b09c48', ceiling:'#d8d2b0', light:'#fffbd0', carpet:'#8c7d3a', carpetDot:'#7a6c30',
+    // Lights: per 10 pipes (0-9, 10-19, ... 40-49), the chance a light is off, and how dark the room gets
+    flicker:[0.04, 0.2, 0.4, 0.6, 1],
+    dark:[0, 0.12, 0.25, 0.4, 0.7],
+    monsterFrom:35,                 // the monster appears at this pipe
+    monsterDelay:[0.75, 0.38]       // seconds behind you at pipe 35 and at the exit (smaller = closer)
+  },
+  mario:   {name:'MARIO WORLD',   ready:false},   // not built yet
+  reverse: {name:'REVERSE WORLD', ready:false}    // not built yet
+};
+
 // Trails
 const TRAIL_INTERVAL = 0.02;  // seconds between trail particles (lower = denser)
 const CONFETTI_COLORS = ['#e8483c','#ffd23f','#7be0a4','#5ec8f2','#f08ac8'];
@@ -144,7 +164,12 @@ const ACHIEVEMENTS = [
   {id:'a-pipes100', name:'PILLAR PASSER',  desc:'PASS 100 PILLARS',  stat:'totalPipes', goal:100, reward:50},
   {id:'a-flips200', name:'FLIP FLOPPA',    desc:'FLIP GRAVITY 200X', stat:'flips',      goal:200, reward:20},
   {id:'a-runs100',  name:'DEDICATED',      desc:'CRASH 100 TIMES',   stat:'runs',       goal:100, reward:10},
-  {id:'a-buy1',     name:'FIRST PURCHASE', desc:'BUY AN ITEM',       stat:'purchases',  goal:1,   reward:5}
+  {id:'a-buy1',     name:'FIRST PURCHASE', desc:'BUY AN ITEM',       stat:'purchases',  goal:1,   reward:5},
+  {id:'a-dim1',     name:'ANOTHER WORLD',  desc:'ENTER A DIMENSION',     stat:'dimsSeen',   goal:1,   reward:15},
+  {id:'a-dimall',   name:'MULTIVERSE',     desc:'ENTER EVERY DIMENSION', stat:'dimsSeen',   goal:Object.keys(DIMENSIONS).length, reward:100},
+  {id:'a-dim10',    name:'DIMENSION HOPPER', desc:'ENTER DIMENSIONS 10X', stat:'dimEntered', goal:10,  reward:30},
+  {id:'a-dimdie',   name:'LOST FOR GOOD',  desc:'DIE IN A DIMENSION',    stat:'dimDeaths',  goal:1,   reward:10},
+  {id:'a-home10',   name:'HOMEWARD BOUND', desc:'RETURN HOME 10X',       stat:'dimReturns', goal:10,  reward:75}
 ];
 
 // Sky by time of day. sky = 6 bands (top to bottom), cloud = cloud color, stars = star visibility 0-1
@@ -262,7 +287,7 @@ function tone(f1, f2, d, type, vol){
    4a. ACHIEVEMENTS: goals, coin rewards, pop-ups
    ===================================================================== */
 
-let stats = {totalPipes:0, flips:0, runs:0, purchases:0};   // lifetime counts
+let stats = {totalPipes:0, flips:0, runs:0, purchases:0, dimEntered:0, dimsSeen:[], dimDeaths:0, dimReturns:0};   // lifetime counts
 try { const q = JSON.parse(localStorage.getItem('terrabird-stats')); if (q && typeof q === 'object') Object.assign(stats, q); } catch(e){}
 let unlocked = [];                                           // ids of finished achievements
 try { const u = JSON.parse(localStorage.getItem('terrabird-ach')); if (Array.isArray(u)) unlocked = u; } catch(e){}
@@ -275,7 +300,9 @@ function saveStats(){
 }
 
 // Current value used to unlock an achievement
-function achValue(a){ return a.stat === 'score' ? score : (stats[a.stat] || 0); }
+// Lifetime value of a stat (lists, like dimsSeen, count their length)
+function statValue(a){ const v = stats[a.stat]; return Array.isArray(v) ? v.length : (v || 0); }
+function achValue(a){ return a.stat === 'score' ? score : statValue(a); }
 
 const toasts = [];   // achievement pop-ups waiting to show
 
@@ -350,7 +377,7 @@ function renderStore(){
   if (storeTab === 'awards'){
     storeItems.innerHTML = ACHIEVEMENTS.map(a => {
       const done = unlocked.includes(a.id);
-      const v = a.stat === 'score' ? best : (stats[a.stat] || 0);
+      const v = a.stat === 'score' ? best : statValue(a);
       const right = done ? 'DONE' : Math.min(v, a.goal) + '/' + a.goal + '<br>+' + a.reward;
       return '<div class="item"><div class="sw" style="background:' + (done ? '#7be0a4' : '#8a5a2e') + '"></div>' +
              '<div class="nm">' + a.name + '<br><span class="d">' + a.desc + '</span></div><div>' + right + '</div></div>';
@@ -403,7 +430,7 @@ storeItems.addEventListener('click', e => {
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
 let paused = false;   // true while the game is paused
-let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer;
+let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail;
 
 function reset(){
   y = H/2;          // fox height
@@ -418,6 +445,12 @@ function reset(){
   shake = 0;        // screen shake timer
   particles = [];   // trail particles
   trailTimer = 0;
+  dimension = null; // null = home, otherwise a key of DIMENSIONS
+  dimCount = 0;     // pipes passed inside the dimension
+  flash = 0;        // white flash when switching dimensions
+  banner = null;    // title shown after a switch
+  scrollX = 0;      // background scroll distance
+  trail = [];       // the fox's recent heights (the monster follows this path)
   while (nextX < W + PIPE_SPACING*2) spawn();
 }
 
@@ -441,7 +474,12 @@ function spawn(){
   const center = Math.min(hi, Math.max(lo, lastCenter + shift));
   lastCenter = center;
 
-  pipes.push({x:nextX, c:center, g:gap, scored:false});
+  // Some pipes are portals (home only). For testing, add a dimension name to the page address,
+  // like #backrooms, to make every pipe a portal to it.
+  const forced = typeof location !== 'undefined' ? location.hash.slice(1).replace(/\d+$/, '') : '';
+  const forceId = (DIMENSIONS[forced] && DIMENSIONS[forced].ready) ? forced : null;
+  const portal = dimension ? null : (forceId || (Math.random() < PORTAL_CHANCE ? pickDimension() : null));
+  pipes.push({x:nextX, c:center, g:gap, scored:false, portal:portal});
   nextX += PIPE_SPACING;
 }
 
@@ -498,6 +536,83 @@ function drawParticles(){
 
 
 /* =====================================================================
+   6c. DIMENSIONS: portal pipes, entering and leaving
+   ===================================================================== */
+
+let dimsCleared = [];   // dimensions you have escaped (the secret skins unlock from this, later)
+try { const d = JSON.parse(localStorage.getItem('terrabird-cleared')); if (Array.isArray(d)) dimsCleared = d; } catch(e){}
+
+function pickDimension(){
+  const ids = Object.keys(DIMENSIONS).filter(k => DIMENSIONS[k].ready);
+  return ids[Math.floor(Math.random() * ids.length)];
+}
+
+// Testing only: #backrooms42 in the page address starts you at pipe 42
+function testStart(){
+  const m = typeof location !== 'undefined' ? /^[a-z]+(\d+)$/.exec(location.hash.slice(1)) : null;
+  return m ? +m[1] : 0;
+}
+
+// Clears the pipes and starts a fresh set, with the first gap near the fox
+function restartPipes(){
+  pipes = [];
+  trail = [];
+  lastCenter = Math.min(H - 100, Math.max(100, y));
+  nextX = W + 60;
+  while (nextX < W + PIPE_SPACING*2) spawn();
+}
+
+function enterDimension(id){
+  dimension = id; dimCount = testStart();
+  restartPipes();
+  flash = 1; banner = {text:DIMENSIONS[id].name, start:0};
+  stats.dimEntered++;
+  if (!stats.dimsSeen.includes(id)) stats.dimsSeen.push(id);
+  saveStats(); checkAchievements();
+  tone(120, 60, 0.5, 'sawtooth', 0.08);
+}
+
+function exitDimension(){
+  const id = dimension;
+  dimension = null; dimCount = 0;
+  restartPipes();
+  flash = 1; banner = {text:'BACK HOME', start:0};
+  stats.dimReturns++;
+  markDimensionCleared(id);
+  saveStats(); checkAchievements();
+  tone(400, 900, 0.3, 'triangle', 0.07);
+}
+
+// Called when you ESCAPE a dimension (not when you die). The secret skin reward will hook in here.
+function markDimensionCleared(id){
+  if (dimsCleared.includes(id)) return;
+  dimsCleared.push(id);
+  try { localStorage.setItem('terrabird-cleared', JSON.stringify(dimsCleared)); } catch(e){}
+}
+
+// Called each time you pass a pipe inside a dimension (special events)
+function dimensionStep(){
+  if (dimension === 'backrooms' && dimCount === DIMENSIONS.backrooms.monsterFrom){
+    banner = {text:'IT SEES YOU', start:0};
+    tone(80, 40, 0.8, 'sawtooth', 0.08);
+  }
+}
+
+// Backrooms monster: it follows YOUR path a moment behind, so it only catches you if you crash
+function monsterActive(){ return dimension === 'backrooms' && dimCount >= DIMENSIONS.backrooms.monsterFrom; }
+function monsterDelay(){   // seconds behind you; shrinks toward the exit
+  const d = DIMENSIONS.backrooms;
+  const t = Math.max(0, Math.min(1, (dimCount - d.monsterFrom) / (DIMENSION_PIPES - d.monsterFrom)));
+  return d.monsterDelay[0] + (d.monsterDelay[1] - d.monsterDelay[0]) * t;
+}
+function monsterPos(){
+  const delay = monsterDelay();
+  const idx = trail.length - 1 - Math.round(delay / STEP);
+  return {x: FOX_X - speed * delay, y: trail.length ? trail[Math.max(0, idx)] : y};
+}
+
+
+/* =====================================================================
    7. GAME ACTIONS: flip, die, collision
    ===================================================================== */
 
@@ -529,6 +644,7 @@ function die(){
     best = score;
     try { localStorage.setItem('terrabird-best', best); } catch(e){}
   }
+  if (dimension) stats.dimDeaths++;
   stats.runs++; saveStats(); checkAchievements();
 }
 
@@ -550,6 +666,7 @@ function update(dt){
   rings = rings.filter(r => r.a > 0);
   updateParticles(dt);
   if (shake > 0) shake -= dt;
+  if (flash > 0) flash -= dt*2.5;
 
   // Title screen: fox bobs gently, nothing else moves
   if (state !== 'play'){
@@ -559,11 +676,13 @@ function update(dt){
 
   // Fox: constant speed, direction set by dir
   y += dir * FOX_SPEED * dt;
+  if (dimension){ trail.push(y); if (trail.length > 240) trail.shift(); }
   emitTrail(dt);
   tilt += (dir*0.5 - tilt) * Math.min(1, dt*14);  // smooth visual tilt
 
   // Pipes: speed up with score, scroll left
   speed = Math.min(PIPE_SPEED_MAX, PIPE_SPEED_START + score*PIPE_SPEED_PER_POINT);
+  scrollX += speed*dt;
   for (const p of pipes) p.x -= speed*dt;
   nextX -= speed*dt;
 
@@ -576,12 +695,21 @@ function update(dt){
     if (!p.scored && p.x + PIPE_W < FOX_X - FOX_RADIUS){
       p.scored = true;
       score++;
-      coins += COIN_PER_PIPE;
+      coins += COIN_PER_PIPE * (dimension ? DIMENSION_COIN_MULT : 1);
       saveCoins();
       stats.totalPipes++; saveStats(); checkAchievements();
       tone(660, 990, 0.12, 'triangle', 0.07);
+      if (dimension){
+        dimCount++;
+        dimensionStep();
+        if (dimCount >= DIMENSION_PIPES){ exitDimension(); return; }
+      }
     }
-    if (hit(p)){ die(); return; }
+    if (hit(p)){
+      if (p.portal && !dimension) enterDimension(p.portal);   // crashing into a portal pipe is not fatal
+      else die();
+      return;
+    }
   }
 
   // Ceiling and floor
@@ -614,16 +742,28 @@ function drawFox(){
   ctx.restore();
 }
 
+function pipeColors(p){
+  if (dimension) return DIMENSIONS[dimension].wall || PIPE_COLORS;
+  if (p.portal) return DIMENSIONS[p.portal].pipe || PIPE_COLORS;   // each dimension sets its own portal look
+  return PIPE_COLORS;
+}
+
 function drawPipe(p){
   const top = Math.round(p.c - p.g/2);   // where the upper pillar ends
   const bot = Math.round(p.c + p.g/2);   // where the lower pillar starts
   const x = Math.round(p.x);
-  const C = PIPE_COLORS;
+  const C = pipeColors(p);
+  const walls = dimension === 'backrooms';   // striped wallpaper slabs instead of pillars
 
   function body(yy, h){
     ctx.fillStyle = C.body;  ctx.fillRect(x, yy, PIPE_W, h);
-    ctx.fillStyle = C.light; ctx.fillRect(x+6, yy, 6, h);
-    ctx.fillStyle = C.dark;  ctx.fillRect(x+PIPE_W-10, yy, 10, h);
+    if (walls){
+      ctx.fillStyle = C.light;
+      for (let sx = x + 6; sx < x + PIPE_W; sx += 12) ctx.fillRect(sx, yy, 4, h);
+    } else {
+      ctx.fillStyle = C.light; ctx.fillRect(x+6, yy, 6, h);
+      ctx.fillStyle = C.dark;  ctx.fillRect(x+PIPE_W-10, yy, 10, h);
+    }
     ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x, yy, PIPE_W, h);
   }
   function cap(yy){
@@ -631,11 +771,75 @@ function drawPipe(p){
     ctx.fillStyle = C.dark;  ctx.fillRect(x-6, yy+12, PIPE_W+12, 6);
     ctx.strokeStyle = C.outline; ctx.lineWidth = 4; ctx.strokeRect(x-6, yy, PIPE_W+12, 18);
   }
+  function trim(yy){   // wall edge trim
+    ctx.fillStyle = C.dark; ctx.fillRect(x-3, yy, PIPE_W+6, 8);
+    ctx.strokeStyle = C.outline; ctx.lineWidth = 3; ctx.strokeRect(x-3, yy, PIPE_W+6, 8);
+  }
 
   body(-4, top+4);        // upper pillar
   body(bot, H-bot+4);     // lower pillar
-  cap(top-18);            // upper lip
-  cap(bot);               // lower lip
+  if (walls){ trim(top-8); trim(bot); } else { cap(top-18); cap(bot); }
+}
+
+// Paints the dimension's room over the sky
+function drawDimension(){
+  const d = DIMENSIONS[dimension];
+  if (dimension === 'backrooms'){
+    ctx.fillStyle = d.wallpaper; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = d.stripe;                       // wallpaper stripes drift slowly
+    const off = Math.floor(scrollX * 0.4) % 24;
+    for (let sx = -off; sx < W; sx += 24) ctx.fillRect(sx, 0, 6, H);
+    ctx.fillStyle = d.carpet; ctx.fillRect(0, H-70, W, 70);          // carpet
+    ctx.fillStyle = d.wall.dark; ctx.fillRect(0, H-74, W, 4);        // baseboard
+    ctx.fillStyle = d.carpetDot;
+    const co = Math.floor(scrollX * 0.8) % 16;
+    for (let r = 0; r < 4; r++) for (let cx = -co + (r%2)*8; cx < W; cx += 16) ctx.fillRect(cx, H-62 + r*14, 3, 3);
+    ctx.fillStyle = d.ceiling; ctx.fillRect(0, 0, W, 12);            // ceiling with flickering lights
+    const lo = Math.floor(scrollX * 0.6) % 120;
+    for (let k = 0; k < 4; k++){
+      const lvl = Math.min(d.flicker.length - 1, Math.floor(dimCount / 10));   // more flicker every 10 pipes
+      const r = Math.abs(Math.sin(Math.floor(performance.now()/90) * 12.9898 + k * 78.233) * 43758.5453) % 1;
+      const on = r >= d.flicker[lvl];
+      ctx.fillStyle = on ? d.light : d.ceiling;
+      ctx.fillRect(k*120 - lo + 30, 3, 50, 6);
+    }
+  }
+}
+
+// Backrooms: the room goes darker as the lights fail, leaving a glow around the fox
+function drawDarkness(){
+  if (dimension !== 'backrooms') return;
+  const d = DIMENSIONS.backrooms;
+  const a = d.dark[Math.min(d.dark.length - 1, Math.floor(dimCount / 10))];
+  if (!a) return;
+  const g = ctx.createRadialGradient(FOX_X, y, 40, FOX_X, y, 260);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,' + a + ')');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+}
+
+function drawMonster(){
+  if (!monsterActive()) return;
+  let m = monsterPos();
+  if (state === 'over'){   // you crashed: it catches up
+    const k = Math.min(1, (performance.now() - deadAt) / 400);
+    m = {x: m.x + (FOX_X - 24 - m.x) * k, y: m.y + (y - m.y) * k};
+  }
+  const x = Math.round(m.x), yy = Math.round(m.y);
+  ctx.fillStyle = '#050505';
+  ctx.fillRect(x-20, yy-26, 40, 52);                                   // body
+  ctx.fillRect(x-26, yy-14, 6, 30); ctx.fillRect(x+20, yy-14, 6, 30);  // arms
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x-12, yy-14, 6, 6); ctx.fillRect(x+6, yy-14, 6, 6);     // eyes
+  for (let i = -3; i <= 3; i++) ctx.fillRect(x + i*4 - 1, yy + 4 + (Math.abs(i) % 2)*4, 3, 3);   // jagged grin
+}
+
+function drawBanner(){
+  if (!banner) return;
+  const now = performance.now();
+  if (!banner.start) banner.start = now;
+  if (now - banner.start > 2200){ banner = null; return; }
+  text(banner.text, W/2, 170, 16, '#fff');
 }
 
 function drawCoin(x, yy){
@@ -714,14 +918,20 @@ function draw(){
     ctx.fillRect(cx+12, cy-12, 36, 12);
   }
 
+  // Dimension background (covers the sky)
+  if (dimension) drawDimension();
+
   // Pipes
   for (const p of pipes) drawPipe(p);
 
   // Ceiling and floor bars
-  ctx.fillStyle = '#1d2433';
-  ctx.fillRect(0, 0, W, 8); ctx.fillRect(0, H-8, W, 8);
-  ctx.fillStyle = '#3a4466';
-  for (let i = 0; i < W; i += 16){ ctx.fillRect(i, 2, 8, 4); ctx.fillRect(i+8, H-6, 8, 4); }
+  const room = dimension === 'backrooms' ? DIMENSIONS.backrooms : null;
+  ctx.fillStyle = room ? room.ceiling : '#1d2433'; ctx.fillRect(0, 0, W, 8);
+  ctx.fillStyle = room ? room.carpet : '#1d2433';  ctx.fillRect(0, H-8, W, 8);
+  if (!room){
+    ctx.fillStyle = '#3a4466';
+    for (let i = 0; i < W; i += 16){ ctx.fillRect(i, 2, 8, 4); ctx.fillRect(i+8, H-6, 8, 4); }
+  }
 
   // Flip animation squares
   for (const r of rings){
@@ -732,12 +942,15 @@ function draw(){
 
   drawParticles();   // trail sits behind the fox
   drawFox();
+  drawDarkness();   // backrooms: lights failing
+  drawMonster();
 
   // Screens
   if (state === 'play'){
     text(score, W/2, 84, 32, '#fff');
     drawCoin(W/2 - 36, 104);
     text(coins, W/2 - 16, 116, 12, '#ffd23f', 'left');
+    if (dimension) text(dimCount + '/' + DIMENSION_PIPES, W/2, 150, 10, '#fff');
   }
   if (state === 'ready'){
     text('TERRABIRD', W/2, 190, 28, '#ffd23f');
@@ -763,6 +976,8 @@ function draw(){
     text('TAP OR PRESS ANY KEY', W/2, 346, 9, '#fff');
     text('TO RESUME', W/2, 366, 9, '#fff');
   }
+  if (flash > 0){ ctx.globalAlpha = Math.min(1, flash); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  drawBanner();
   drawToast();
 
   ctx.restore();
