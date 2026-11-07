@@ -6,6 +6,40 @@
 <title>Terrabird</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap">
 
+<!-- ============================== Y8 SDK (login and ads) ============================== -->
+<script
+  src="https://cdn.y8.com/minimal-sdk/2-0/y8.min.js"
+  async
+></script>
+<script>
+  let y8Sdk;
+
+  window.addEventListener("y8sdk.ready", function () {
+    y8Sdk = y8.sdk();
+
+    const appConfig = {
+      appId: '6aee1b9f9ee02e3738cb6dc3',
+      autoLogin: true
+    };
+
+    // adConfig is optional: omit it if your game doesn't use ads
+    const adConfig = {
+      gameId: '291763',
+      preloadAdBreaks: 'on',
+      sound: 'on',
+      onReady: () => {}
+    };
+
+    y8Sdk.init(appConfig, adConfig);
+    y8Sdk.onAuth((user, error) => {});
+  }, { once: true });
+
+  // Handle the case where the SDK already loaded
+  if (window.y8 && window.y8.emitReadyEvent) {
+    window.y8.emitReadyEvent();
+  }
+</script>
+
 <!-- ============================== STYLES ============================== -->
 <style>
 :root{--bg:#d9dde8;--ink:#1d2433;--btn:#ffffffcc;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
@@ -21,7 +55,8 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
 #mute,#pauseBtn{position:absolute;top:12px;width:38px;height:38px;padding:5px;background:#c49a6c;border:3px solid #5a3a1e;box-shadow:2px 2px 0 #0006;color:#3b2412;cursor:pointer}
 #mute{right:12px}
 #pauseBtn{left:12px}
-#mute:focus-visible,#pauseBtn:focus-visible{outline:3px solid #ffd23f}
+#mute:focus-visible,#pauseBtn:focus-visible,#continueBtn:focus-visible{outline:3px solid #ffd23f}
+#continueBtn{position:absolute;left:50%;top:70%;transform:translateX(-50%);padding:10px 12px;font:9px "Press Start 2P",monospace;color:#3b2412;background:#c49a6c;border:3px solid #5a3a1e;box-shadow:3px 3px 0 #0006;cursor:pointer;white-space:nowrap}
 /* Store */
 [hidden]{display:none!important}
 #storeBtn{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);width:60px;height:60px;padding:4px;background:#c49a6c;border:4px solid #5a3a1e;box-shadow:3px 3px 0 #0006;cursor:pointer}
@@ -52,6 +87,7 @@ canvas{display:block;image-rendering:pixelated;outline:none;border:4px solid #1d
   <button id="pauseBtn" aria-label="Pause" title="Pause (P)" hidden>
     <svg viewBox="0 0 12 12" width="24" height="24" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><rect x="3" y="2" width="2" height="8"/><rect x="7" y="2" width="2" height="8"/></svg>
   </button>
+  <button id="continueBtn" hidden>WATCH AD TO CONTINUE</button>
   <button id="storeBtn" aria-label="Open store" title="Store" hidden>
     <svg viewBox="0 0 16 16" width="44" height="44" shape-rendering="crispEdges" aria-hidden="true">
       <rect x="1" y="2" width="14" height="4" fill="#d9382e"/>
@@ -112,6 +148,9 @@ const EXTREME_CHANCE     = 0.35; // chance of such a swing
 // Timing
 const STEP = 1/120;  // physics step in seconds
 
+// Continue (rewarded ad): offered after dying with at least this score, once per run
+const CONTINUE_MIN_SCORE = 15;
+
 // Coins
 const COIN_PER_PIPE = 1;  // coins earned per pipe passed
 
@@ -155,20 +194,42 @@ const DIMENSIONS = {
     brick:'#c84c0c', brickLight:'#fc9838', brickLine:'#000000',
     pipeCoins:[1]                   // 1 coin per pipe, no bonus
   },
-  reverse: {name:'REVERSE WORLD', ready:false}    // not built yet
+  reverse: {
+    name:'REVERSE WORLD', ready:true,   // you are a column, the obstacles are giant foxes (drawn in code)
+    pipeCoins:[1]
+  }
 };
 
 // Mario world
-const MARIO_GROUND      = 32;   // brick floor height (the fox crashes into it, pipes stand on it)
-const COIN_R            = 10;   // coin size, also used for pickup
-const MARIO_COIN_CHANCE = [5,10];  // chance a pair of pipes gets a coin
-const COIN_STEP         = 4;    // px between the heights the placement code tests
-// best / worst = slack ranges (see the explanation). safe:true = timing built so ANY start spot works.
-// weight = how often; ramp = weight change per pipe survived in the dimension (harder coins later)
+const MARIO_GROUND     = 32;      // brick floor height (the fox crashes into it, pipes stand on it)
+const COIN_R           = 10;      // coin size, also used for pickup
+const MARIO_COIN_EVERY = [5, 10]; // a coin appears every 5 to 10 pillars
+const COIN_STEP        = 4;       // px between the heights the placement code tests
+// worst / best = slack ranges. safe:true = timing built so ANY start spot works.
+// weight = how often; ramp = weight change per pipe survived in the dimension
 const COIN_TIERS = [
-  {name:'easy',   value:1, weight:5, ramp:-0.02, safe:true,  worst:[0.15, 1], best:[0, 1],       color:'#ffd23f', shine:'#fff3b0'},
-  {name:'medium', value:2, weight:3, ramp:0,     safe:false, worst:[-99, 0],  best:[0.25, 1],    color:'#5ec8f2', shine:'#d6f3ff'},
+  {name:'easy',   value:1, weight:5, ramp:-0.02, safe:true,  worst:[0.15, 1], best:[0, 1],    color:'#ffd23f', shine:'#fff3b0'},
+  {name:'medium', value:2, weight:3, ramp:0,     safe:false, worst:[-99, 0],  best:[0.25, 1], color:'#5ec8f2', shine:'#d6f3ff'},
   {name:'hard',   value:5, weight:1, ramp:0.02,  safe:false, worst:[-99, 1],  best:[0.02, 0.12], color:'#e8483c', shine:'#ffc0b8'}
+];
+
+// Reverse world: you are a column, the obstacles are giant foxes
+const COL_W             = 24;   // column width
+const COL_HALF_H        = 24;   // half the column's height (its hitbox)
+const REVERSE_GAP_BONUS = 24;   // gaps are taller here, because the column is taller than the fox
+const FOX_PX            = 4;    // size of one pixel of the giant fox head
+const FOXHEAD_COLORS = {O:'#f08a2e', W:'#ffffff', K:'#1d2433'};
+const FOXHEAD = [       // 18 x 10 pixels, ears at the top (the end that faces the gap)
+  "..KK..........KK..",
+  ".KOOK........KOOK.",
+  ".KOOOKKKKKKKKOOOK.",
+  "KOOOOOOOOOOOOOOOOK",
+  "KOOKKOOOOOOOOKKOOK",
+  "KOOKKOOOOOOOOKKOOK",
+  "KOOOOOOWWWWOOOOOOK",
+  "KOOOOOWWWWWWOOOOOK",
+  ".KOOOWWWKKWWWOOOK.",
+  "..KKOOWWWWWWOOKK.."
 ];
 
 // Trails
@@ -453,18 +514,10 @@ storeItems.addEventListener('click', e => {
 
 let state = 'ready';   // 'ready' | 'play' | 'over'
 let paused = false;   // true while the game is paused
+let continueUsed = false;   // one continue per run
+let adBusy = false;         // true while an ad is showing
+let adMsg = '', adMsgTimer = null;   // short message under the game over box
 let y, dir, pipes, speed, score, lastCenter, nextX, tilt, rings, deadAt, shake, particles, trailTimer, dimension, dimCount, flash, banner, scrollX, trail, coinPops, coinWait;
-//Wait (in pillars) until the next Mario coin
-function rollCoinWait(){
-  return MARIO_COIN_CHANCE[0] + Math.floor(Math.random() * (MARIO_COIN_CHANCE[1] - MARIO_COIN_CHANCE[0] + 1));
-}
-
-// Coins for the pipe just passed. Inside a dimension it follows that dimension's pattern.
-function pipeReward(){
-  if (!dimension) return COIN_PER_PIPE;
-  const pattern = DIMENSIONS[dimension].pipeCoins || [1];
-  return COIN_PER_PIPE * pattern[dimCount % pattern.length];
-}
 
 function reset(){
   y = H/2;          // fox height
@@ -486,6 +539,9 @@ function reset(){
   scrollX = 0;      // background scroll distance
   trail = [];       // the fox's recent heights (the monster follows this path)
   coinPops = [];    // "+5" pop-ups
+  coinWait = 0;     // pillars until the next Mario coin
+  continueUsed = false;
+  adMsg = '';
   while (nextX < W + PIPE_SPACING*2) spawn();
 }
 
@@ -494,7 +550,7 @@ function reset(){
    6. PIPES: creating gaps the fox can always reach
    ===================================================================== */
 
-function gapSize(){ return Math.max(GAP_MIN, GAP_START - score*GAP_SHRINK); }
+function gapSize(){ return Math.max(GAP_MIN, GAP_START - score*GAP_SHRINK) + (dimension === 'reverse' ? REVERSE_GAP_BONUS : 0); }
 
 function spawn(){
   const gap = gapSize();
@@ -516,10 +572,10 @@ function spawn(){
   const portal = dimension ? null : (forceId || (Math.random() < PORTAL_CHANCE ? pickDimension() : null));
   const pipe = {x:nextX, c:center, g:gap, scored:false, portal:portal, coin:null};
   pipes.push(pipe);
-if (dimension === 'mario' && pipes.length > 1){
-  if (--coinWait <=0){
-    pipe.coin = makeCoin(pipes[pipes.length-2], pipe);
-    if (pipe.coin) coinWait = rollCoinWait(); 
+  if (dimension === 'mario' && pipes.length > 1){
+    if (--coinWait <= 0){
+      pipe.coin = makeCoin(pipes[pipes.length-2], pipe);
+      if (pipe.coin) coinWait = rollCoinWait();   // placed one: wait 5-10 pillars. If none fit, try the next pillar.
     }
   }
   nextX += PIPE_SPACING;
@@ -614,7 +670,9 @@ function restartPipes(){
 function enterDimension(id){
   dimension = id; dimCount = testStart();
   coinWait = rollCoinWait();
-  const floor = floorY(); y = Math.max(FOX_RADIUS + 30, Math.min(floor - FOX_RADIUS - 30, y));
+  // Safety: don't start next to an edge. Nudge into the room and head away from the nearest edge.
+  const floor = floorY(), hh = halfH();
+  y = Math.max(hh + 30, Math.min(floor - hh - 30, y));
   dir = y < floor / 2 ? 1 : -1;
   restartPipes();
   flash = 1; banner = {text:DIMENSIONS[id].name, start:0};
@@ -665,13 +723,25 @@ function monsterPos(){
 
 
 /* =====================================================================
-   6d. MARIO COINS: placement math, pickup, drawing
+   6d. COINS: dimension payouts and Mario coins
    ===================================================================== */
+
+// Wait (in pillars) until the next Mario coin
+function rollCoinWait(){
+  return MARIO_COIN_EVERY[0] + Math.floor(Math.random() * (MARIO_COIN_EVERY[1] - MARIO_COIN_EVERY[0] + 1));
+}
+
+// Coins for the pipe just passed. Inside a dimension it follows that dimension's pattern.
+function pipeReward(){
+  if (!dimension) return COIN_PER_PIPE;
+  const pattern = DIMENSIONS[dimension].pipeCoins || [1];
+  return COIN_PER_PIPE * pattern[dimCount % pattern.length];
+}
 
 function speedFor(s){ return Math.min(PIPE_SPEED_MAX, PIPE_SPEED_START + s*PIPE_SPEED_PER_POINT); }
 function distToRange(v, lo, hi){ return v < lo ? lo - v : v > hi ? v - hi : 0; }
-function farFromRange(v, lo, hi){ return Math.max(Math.abs(v - lo), Math.abs(v - hi)); }
 function floorY(){ return dimension === 'mario' ? H - MARIO_GROUND : H; }
+function halfH(){ return dimension === 'reverse' ? COL_HALF_H : FOX_RADIUS; }   // half the player's height
 
 // Shortest fox travel from start height y0, to a spot within P of the coin height cy, then into gap B
 function legs(y0, cy, b0, b1, P){
@@ -684,31 +754,32 @@ function legs(y0, cy, b0, b1, P){
   return r;
 }
 
+// a = pipe the fox just passed, b = the next pipe. Returns a coin stored on b, or null.
 function makeCoin(a, b){
-  const R = FOX_RADIUS, PICK = FOX_RADIUS + COIN_R;
-  const k = speedFor(score + 3) / FOX_SPEED;
-  const F = PIPE_SPACING - PIPE_W - 2*R;
-  const L = F / k;
-  const a0 = a.c - a.g/2 + R, a1 = a.c + a.g/2 - R;
-  const b0 = b.c - b.g/2 + R, b1 = b.c + b.g/2 - R;
+  const R = FOX_RADIUS, PICK = FOX_RADIUS + COIN_R;     // fox grabs a coin within PICK px vertically
+  const k = speedFor(score + 3) / FOX_SPEED;            // scroll px per px of fox travel (speed when this pair arrives)
+  const F = PIPE_SPACING - PIPE_W - 2*R;                // scroll distance between "passed a" and "b arrives"
+  const L = F / k;                                      // how far the fox can fly in that time
+  const a0 = a.c - a.g/2 + R, a1 = a.c + a.g/2 - R;     // safe heights inside gap a
+  const b0 = b.c - b.g/2 + R, b1 = b.c + b.g/2 - R;     // safe heights inside gap b
   const yMin = R + 4, yMax = floorY() - R - 4;
-  const starts = [];                                   // possible start heights inside gap a
+  const starts = [];                                    // possible start heights inside gap a
   for (let s = a0; s < a1; s += 6) starts.push(s);
   starts.push(a1);
 
   const found = COIN_TIERS.map(() => []);
   for (let cy = yMin; cy <= yMax; cy += COIN_STEP){
     const ls = starts.map(s => legs(s, cy, b0, b1, PICK - 1)), tot = l => l.l1 + l.l2;
-    let bi = 0, wi = 0;                                // best and worst start
+    let bi = 0, wi = 0;                                 // best and worst start
     ls.forEach((l, i) => { if (tot(l) < tot(ls[bi])) bi = i; if (tot(l) > tot(ls[wi])) wi = i; });
     const bestSlack = (L - tot(ls[bi])) / L, worstSlack = (L - tot(ls[wi])) / L;
     COIN_TIERS.forEach((t, i) => {
       if (!(bestSlack >= t.best[0] && bestSlack <= t.best[1] && worstSlack >= t.worst[0] && worstSlack <= t.worst[1])) return;
-      const set = t.safe ? ls : [ls[bi]];              // safe tier: one timing that works for every start
+      const set = t.safe ? ls : [ls[bi]];               // safe tier: one timing that works for every start
       const lo = Math.max(...set.map(l => k * l.l1)), hi = Math.min(...set.map(l => F - k * l.l2));
       if (hi < lo) return;
-      const u = (lo + hi) / 2;                         // middle of the timing window
-      if (F + R - u < COIN_R + 8) return;              // would sit inside pipe b's lip
+      const u = (lo + hi) / 2;                          // middle of the timing window
+      if (F + R - u < COIN_R + 8) return;               // would sit inside pipe b's lip
       found[i].push({cy:cy, u:u});
     });
   }
@@ -744,20 +815,6 @@ function collectCoins(){
   }
 }
 
-function drawMarioCoins(){
-  const hw = [7, 5, 2, 5][Math.floor(performance.now() / 110) % 4];   // coin "spins"
-  for (const p of pipes){
-    const c = p.coin;
-    if (!c || c.got) continue;
-    const cx = Math.round(p.x - c.w), cy = Math.round(c.y);
-    if (cx < -20 || cx > W + 20) continue;
-    const t = COIN_TIERS[c.tier];
-    ctx.fillStyle = '#000';  ctx.fillRect(cx - hw - 2, cy - 12, hw*2 + 4, 24);
-    ctx.fillStyle = t.color; ctx.fillRect(cx - hw, cy - 10, hw*2, 20);
-    if (hw > 3){ ctx.fillStyle = t.shine; ctx.fillRect(cx - hw + 2, cy - 8, 2, 14); }
-  }
-}
-
 
 /* =====================================================================
    7. GAME ACTIONS: flip, die, collision
@@ -770,6 +827,7 @@ pauseBtn.addEventListener('click', e => { e.stopPropagation(); if (state === 'pl
 document.addEventListener('visibilitychange', () => { if (document.hidden && state === 'play') setPaused(true); });
 
 function flip(){
+  if (adBusy) return;   // ignore taps and keys while an ad is showing
   if (paused){ setPaused(false); return; }   // any tap or key resumes
   if (state === 'ready'){ state = 'play'; }
   else if (state === 'over'){
@@ -798,8 +856,66 @@ function die(){
 // True if the fox overlaps pipe p
 function hit(p){
   if (FOX_X + FOX_RADIUS < p.x || FOX_X - FOX_RADIUS > p.x + PIPE_W) return false;
-  return y - FOX_RADIUS < p.c - p.g/2 || y + FOX_RADIUS > p.c + p.g/2;
+  const hh = halfH();
+  return y - hh < p.c - p.g/2 || y + hh > p.c + p.g/2;
 }
+
+
+/* =====================================================================
+   7b. CONTINUE: watch a rewarded ad to keep going after a high-score crash
+   ===================================================================== */
+
+const continueBtn = document.getElementById('continueBtn');
+
+function canContinue(){ return state === 'over' && !continueUsed && !adBusy && score >= CONTINUE_MIN_SCORE; }
+
+function setAdMsg(t){
+  adMsg = t;
+  clearTimeout(adMsgTimer);
+  adMsgTimer = setTimeout(() => { adMsg = ''; }, 2500);
+}
+
+// Resumes the same run: same score and dimension, fresh pipes from the right, fox moved away from any edge
+function continueRun(){
+  continueUsed = true;
+  state = 'play';
+  shake = 0;
+  restartPipes();
+  const floor = floorY(), hh = halfH();
+  y = Math.max(hh + 30, Math.min(floor - hh - 30, y));
+  dir = y < floor / 2 ? 1 : -1;
+  banner = {text:'CONTINUE!', start:0};
+  tone(400, 900, 0.3, 'triangle', 0.07);
+}
+
+function watchAdToContinue(){
+  if (!canContinue()) return;
+  if (typeof y8Sdk === 'undefined' || !y8Sdk){ setAdMsg('AD NOT AVAILABLE'); return; }
+  adBusy = true;
+  let rewarded = false, finished = false;
+  function finish(info){   // runs once, when the ad break ends
+    if (finished) return;
+    finished = true;
+    adBusy = false;
+    if (rewarded) continueRun();
+    else if (!adMsg) setAdMsg(info && info.breakStatus === 'dismissed' ? 'AD SKIPPED: NO REWARD' : 'NO AD READY');
+  }
+  try {
+    y8Sdk.showAd({
+      type: 'reward',
+      name: 'extra-life',
+      beforeAd: () => {},        // the game is already stopped on the game over screen
+      afterAd: () => {},
+      beforeReward: (showAdFn) => showAdFn(),
+      adDismissed: () => { setAdMsg('AD SKIPPED: NO REWARD'); },
+      adViewed: () => { rewarded = true; setTimeout(finish, 3000); },   // backup in case adBreakDone is late
+      adBreakDone: (info) => finish(info)
+    }).catch(e => { console.error(e); finish(); });
+  } catch(e){ console.error(e); finish(); }
+}
+
+continueBtn.addEventListener('pointerdown', e => e.stopPropagation());
+continueBtn.addEventListener('click', e => { e.stopPropagation(); watchAdToContinue(); });
 
 
 /* =====================================================================
@@ -862,9 +978,9 @@ function update(dt){
   if (dimension === 'mario') collectCoins();
 
   // Ceiling and floor
-  const floor = floorY();
-  if (y - FOX_RADIUS < 0 || y + FOX_RADIUS > floor){
-    y = Math.max(FOX_RADIUS, Math.min(floor - FOX_RADIUS, y));
+  const floor = floorY(), hh = halfH();
+  if (y - hh < 0 || y + hh > floor){
+    y = Math.max(hh, Math.min(floor - hh, y));
     die();
   }
 }
@@ -892,6 +1008,47 @@ function drawFox(){
   ctx.restore();
 }
 
+// The player: the fox, or a column in the Reverse world
+function drawPlayer(){ if (dimension === 'reverse') drawColumn(); else drawFox(); }
+
+function drawColumn(){
+  const C = PIPE_COLORS, x = FOX_X - COL_W/2, top = Math.round(y - COL_HALF_H), h = COL_HALF_H*2;
+  ctx.fillStyle = C.body;  ctx.fillRect(x, top, COL_W, h);
+  ctx.fillStyle = C.light; ctx.fillRect(x + 4, top, 4, h);
+  ctx.fillStyle = C.dark;  ctx.fillRect(x + COL_W - 6, top, 6, h);
+  ctx.strokeStyle = C.outline; ctx.lineWidth = 3; ctx.strokeRect(x, top, COL_W, h);
+  for (const cy of [top - 2, top + h - 8]){          // caps
+    ctx.fillStyle = C.light; ctx.fillRect(x - 4, cy, COL_W + 8, 10);
+    ctx.fillStyle = C.dark;  ctx.fillRect(x - 4, cy + 6, COL_W + 8, 4);
+    ctx.strokeRect(x - 4, cy, COL_W + 8, 10);
+  }
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 4, y - 6, 6, 6); ctx.fillRect(x + COL_W - 10, y - 6, 6, 6);   // the fox's eyes
+  ctx.fillStyle = '#1d2433'; ctx.fillRect(x + 7, y - 4, 3, 4); ctx.fillRect(x + COL_W - 7, y - 4, 3, 4);
+}
+
+// A giant fox standing in for a pipe. edge = the gap edge it touches, up = true for the fox below the gap.
+function drawFoxPillar(x, edge, up){
+  const headH = FOXHEAD.length * FOX_PX;
+  const bodyY = up ? edge + headH : -4;
+  const bodyH = up ? H - (edge + headH) + 4 : edge - headH + 4;
+  if (bodyH > 0){
+    ctx.fillStyle = '#f08a2e'; ctx.fillRect(x, bodyY, PIPE_W, bodyH);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(x + 20, bodyY, 18, bodyH);            // belly
+    ctx.fillStyle = '#c4621a'; ctx.fillRect(x + PIPE_W - 8, bodyY, 8, bodyH);     // shaded side
+    ctx.strokeStyle = '#1d2433'; ctx.lineWidth = 4; ctx.strokeRect(x, bodyY, PIPE_W, bodyH);
+  }
+  ctx.save();
+  ctx.translate(x - (FOXHEAD[0].length*FOX_PX - PIPE_W)/2, edge);
+  if (!up) ctx.scale(1, -1);                                                      // hanging fox: flipped
+  for (let r = 0; r < FOXHEAD.length; r++){
+    for (let c = 0; c < FOXHEAD[r].length; c++){
+      const ch = FOXHEAD[r][c];
+      if (ch !== '.'){ ctx.fillStyle = FOXHEAD_COLORS[ch]; ctx.fillRect(c*FOX_PX, r*FOX_PX, FOX_PX, FOX_PX); }
+    }
+  }
+  ctx.restore();
+}
+
 function pipeColors(p){
   if (dimension) return DIMENSIONS[dimension].wall || PIPE_COLORS;
   if (p.portal) return DIMENSIONS[p.portal].pipe || PIPE_COLORS;   // each dimension sets its own portal look
@@ -902,6 +1059,10 @@ function drawPipe(p){
   const top = Math.round(p.c - p.g/2);   // where the upper pillar ends
   const bot = Math.round(p.c + p.g/2);   // where the lower pillar starts
   const x = Math.round(p.x);
+  if (dimension === 'reverse' || (!dimension && p.portal === 'reverse')){   // giant foxes instead of pipes
+    drawFoxPillar(x, top, false); drawFoxPillar(x, bot, true);
+    return;
+  }
   const C = pipeColors(p);
   const walls = dimension === 'backrooms';   // striped wallpaper slabs instead of pillars
   const mario = dimension === 'mario';
@@ -967,7 +1128,6 @@ function drawDimension(){
 function drawMarioBackground(d){
   const base = H - MARIO_GROUND;
   ctx.fillStyle = d.sky; ctx.fillRect(0, 0, W, H);
-
   const span = W + 120, co = scrollX * 0.15;                       // clouds drift slowly
   for (const c of [[20,110],[190,60],[300,200]]){
     const cx = Math.round(((c[0] - co) % span + span) % span) - 64;
@@ -1008,6 +1168,20 @@ function drawMarioGround(){   // drawn AFTER the pipes so they look planted in i
       ctx.fillStyle = d.brickLight; ctx.fillRect(tx, ty, 16, 2); ctx.fillRect(tx, ty, 2, 16);
       ctx.fillStyle = d.brickLine;  ctx.fillRect(tx + 14, ty, 2, 16); ctx.fillRect(tx, ty + 14, 16, 2);
     }
+  }
+}
+
+function drawMarioCoins(){
+  const hw = [7, 5, 2, 5][Math.floor(performance.now() / 110) % 4];   // coin "spins"
+  for (const p of pipes){
+    const c = p.coin;
+    if (!c || c.got) continue;
+    const cx = Math.round(p.x - c.w), cy = Math.round(c.y);
+    if (cx < -20 || cx > W + 20) continue;
+    const t = COIN_TIERS[c.tier];
+    ctx.fillStyle = '#000';  ctx.fillRect(cx - hw - 2, cy - 12, hw*2 + 4, 24);
+    ctx.fillStyle = t.color; ctx.fillRect(cx - hw, cy - 10, hw*2, 20);
+    if (hw > 3){ ctx.fillStyle = t.shine; ctx.fillRect(cx - hw + 2, cy - 8, 2, 14); }
   }
 }
 
@@ -1096,6 +1270,8 @@ window.addEventListener('hashchange', refreshSky);
 function draw(){
   const showStoreBtn = state === 'ready' && !storeOpen;   // icon only on the title screen
   if (storeBtn.hidden === showStoreBtn) storeBtn.hidden = !showStoreBtn;
+  const showContinue = canContinue();   // continue button on the game over screen
+  if (continueBtn.hidden === showContinue) continueBtn.hidden = !showContinue;
   const showPause = state === 'play';   // pause button only while playing
   if (pauseBtn.hidden === showPause) pauseBtn.hidden = !showPause;
   ctx.save();
@@ -1131,8 +1307,8 @@ function draw(){
   if (dimension === 'mario'){ drawMarioGround(); drawMarioCoins(); }
 
   // Ceiling and floor bars
-  if (dimension !== 'mario'){
   const room = dimension === 'backrooms' ? DIMENSIONS.backrooms : null;
+  if (dimension !== 'mario'){   // Mario has a brick floor instead of bars
   ctx.fillStyle = room ? room.ceiling : '#1d2433'; ctx.fillRect(0, 0, W, 8);
   ctx.fillStyle = room ? room.carpet : '#1d2433';  ctx.fillRect(0, H-8, W, 8);
   if (!room){
@@ -1149,7 +1325,7 @@ function draw(){
   }
 
   drawParticles();   // trail sits behind the fox
-  drawFox();
+  drawPlayer();
   drawDarkness();   // backrooms: lights failing
   drawMonster();
 
@@ -1175,6 +1351,7 @@ function draw(){
     text('SCORE ' + score, W/2, 310, 14, '#fff');
     text('BEST ' + best, W/2, 346, 14, '#ffd9a0');
     text('TAP TO RETRY', W/2, 396, 11, '#fff');
+    if (adMsg) text(adMsg, W/2, 470, 9, '#ff6a4d');
     drawCoin(W/2 - 36, 360);
     text(coins, W/2 - 16, 372, 12, '#ffd23f', 'left');
   }
@@ -1197,7 +1374,7 @@ function draw(){
    ===================================================================== */
 
 window.addEventListener('pointerdown', e => {
-  if (e.target.closest('#mute, #pauseBtn, #storeBtn, #store')) return;
+  if (e.target.closest('#mute, #pauseBtn, #storeBtn, #store, #continueBtn')) return;
   e.preventDefault();
   try { window.focus(); cv.focus(); } catch(x){}
   flip();
@@ -1207,6 +1384,8 @@ window.addEventListener('pointerdown', e => {
 function onKey(e){
   if (e._h) return;
   e._h = 1;
+  if (adBusy) return;
+  if (e.target && e.target.closest && e.target.closest('#continueBtn')) return;   // Enter/Space on the button just clicks it
   if (storeOpen){ if (e.code === 'Escape') closeStore(); return; }   // game keys off while store is open
   if (e.code === 'KeyP' || e.code === 'Escape'){ if (state === 'play') setPaused(!paused); return; }
   if (['Space','ArrowUp','ArrowDown','Enter'].includes(e.code)){

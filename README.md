@@ -13,7 +13,7 @@ Functions:
     - in the store you can open your achievements
     - but you can also buy different trails and parachutes. there may be a third buyable item, like a background or special columns. 
 - multiple dimensions
-    - you can enter one of 2 (soon to be 3) dimensions by crashing into specific pillars. You'll know when you see them. 
+    - you can enter one of 3  dimensions by crashing into specific pillars. You'll know when you see them. 
     - you stand to win skins and coins, don't lose this chance. 
 - Backgrounds depending on the time of day.
 
